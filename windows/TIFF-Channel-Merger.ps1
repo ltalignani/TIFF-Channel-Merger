@@ -1,16 +1,13 @@
 ﻿# TIFF Channel Merger for Windows - Ultra Final Version v2
-# Version 3.10 - CRITICAL FIX: Disabled OME-XML injection to prevent file corruption
-# - FIXED: File becomes empty after "Adding OME metadata" step
-#   * Python libraries (tifffile, Pillow) load entire 7+ GB file in RAM
-#   * Rewriting destroys pyramidal structure, creating corrupted/empty files
-#   * Only tifftools can safely inject OME-XML without loading entire file
-# - FIXED: Empty output file by restoring --vips-disc-threshold=0 parameter
-# - RESTORED: Stable V23 configuration for VIPS environment variables (VIPS_DISC_THRESHOLD=0)
+# Version 3.12 - Fixed QuPath script compatibility
+# - FIXED: Groovy script generation now uses UTF-8 without BOM (removed invisible character bug)
+# - FIXED: Channel names file now saved without BOM (fixes "﻿DAPI" issue)
+# - FIXED: QuPath API compatibility - uses ImageServerMetadata.Builder constructor
+# - REMOVED: "Advanced Options" checkbox (pyramidal images are now always created)
+# - Pyramidal TIFFs are optimal for QuPath and provide smooth multi-resolution viewing
+# - Always uses LZW compression, tiling (256x256), and pyramid generation
 # - Uses .v temp file format to avoid TIFF reload memory limits
-# - FIXED: Unicode encoding errors in Python script on Windows
-# - FIXED: Memory issues when reading large TIFF dimensions (now uses vipsheader)
-# - OME-XML injection now DISABLED by default (use .ome.xml sidecar file instead)
-# - To enable safe OME-XML embedding: pip install tifftools (then uncomment injection code)
+# - OME-XML injection DISABLED by default (use .ome.xml sidecar file instead)
 # PowerShell script with WinForms interface
 
 # Set console encoding to UTF-8 for proper character display
@@ -68,10 +65,6 @@ function Initialize-Texts {
             "outputLocation" = "Emplacement de sortie"
             "outputLocationDesc" = "Choisissez où sauvegarder le fichier fusionné :"
             "browse" = "Parcourir..."
-            "pyramidOption" = "Options avancées"
-            "pyramidDesc" = "Créer une image pyramidale ?`n`nUne image pyramidale contient plusieurs niveaux de résolution, ce qui permet une visualisation plus fluide dans QuPath.`n`nRecommandé : OUI pour les grandes images (>10,000×10,000 pixels)"
-            "yes" = "Oui"
-            "no" = "Non"
             "summary" = "Récapitulatif"
             "merge" = "Fusionner"
             "merging" = "Fusion en cours..."
@@ -88,6 +81,13 @@ function Initialize-Texts {
             "allFilter" = "Tous les fichiers (*.*)|*.*"
             "downloadProgress" = "Téléchargement en cours..."
             "extractProgress" = "Extraction en cours..."
+            "createShortcut" = "Créer un raccourci sur le bureau ?"
+            "createShortcutDesc" = "Voulez-vous créer un raccourci sur le bureau pour accéder facilement à cette application ?"
+            "shortcutCreated" = "Le raccourci a été créé sur le bureau avec succès !"
+            "shortcutError" = "Erreur lors de la création du raccourci :"
+            "moveUp" = "Monter"
+            "moveDown" = "Descendre"
+            "previous" = "Précédent"
         }
     } else {
         $script:texts = @{
@@ -108,8 +108,8 @@ function Initialize-Texts {
             "welcome" = "Welcome to TIFF Channel Merger`n`nThis application allows you to merge multiple TIFF files (corresponding to different fluorescence channels) into a single multi-channel TIFF file.`n`nThe resulting file can be opened in QuPath for microscopy image analysis."
             "start" = "Start"
             "selectFiles" = "Select TIFF Files"
-            "selectFilesDesc" = "Select at least 2 TIFF files to merge:`nThe order in the list determines the channel order (first = Channel 1, second = Channel 2, etc.)`nUse Move Up/Down buttons to reorder."
-            "addFile" = "Add File"
+            "selectFilesDesc" = "Select at least 2 TIFF files to merge:`nThe order in the list determines the channel order (highest on the list = Channel 1, second = Channel 2, etc.)`nUse Move Up/Down buttons to reorder."
+            "addFile" = "Add Files"
             "removeFile" = "Remove"
             "channelNaming" = "Channel Naming"
             "channelNamingDesc" = "Name each channel for QuPath (optional):`nNote: Channel names will be embedded in TIFF metadata"
@@ -118,10 +118,6 @@ function Initialize-Texts {
             "outputLocation" = "Output Location"
             "outputLocationDesc" = "Choose where to save the merged file:"
             "browse" = "Browse..."
-            "pyramidOption" = "Advanced Options"
-            "pyramidDesc" = "Create pyramidal image?`n`nA pyramidal image contains multiple resolution levels, which allows smoother visualization in QuPath.`n`nRecommended: YES for large images (>10,000×10,000 pixels)"
-            "yes" = "Yes"
-            "no" = "No"
             "summary" = "Summary"
             "merge" = "Merge"
             "merging" = "Merging..."
@@ -138,8 +134,93 @@ function Initialize-Texts {
             "allFilter" = "All Files (*.*)|*.*"
             "downloadProgress" = "Downloading..."
             "extractProgress" = "Extracting..."
+            "createShortcut" = "Create desktop shortcut?"
+            "createShortcutDesc" = "Would you like to create a desktop shortcut for easy access to this application?"
+            "shortcutCreated" = "Desktop shortcut created successfully!"
+            "shortcutError" = "Error creating shortcut:"
+            "moveUp" = "Move Up"
+            "moveDown" = "Move Down"
+            "previous" = "Previous"
         }
     }
+}
+
+# Function to create desktop shortcut
+function New-DesktopShortcut {
+    try {
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $shortcutName = "TIFF Channel Merger.lnk"
+        $shortcutPath = Join-Path $desktopPath $shortcutName
+
+        # Don't create if already exists
+        if (Test-Path $shortcutPath) {
+            return $true
+        }
+
+        $batPath = Join-Path $PSScriptRoot "TIFF-Channel-Merger.bat"
+        $iconPath = Join-Path $PSScriptRoot "tiff-merger-icon.ico"
+
+        # Create shortcut using WScript.Shell
+        $WScriptShell = New-Object -ComObject WScript.Shell
+        $shortcut = $WScriptShell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $batPath
+        $shortcut.WorkingDirectory = $PSScriptRoot
+        $shortcut.Description = "TIFF Channel Merger - Merge fluorescence microscopy channels"
+
+        # Set icon if exists
+        if (Test-Path $iconPath) {
+            $shortcut.IconLocation = $iconPath
+        }
+
+        $shortcut.Save()
+
+        # Release COM object
+        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($WScriptShell) | Out-Null
+
+        return $true
+    }
+    catch {
+        Write-Host "Error creating shortcut: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Function to ask user about creating desktop shortcut
+function Show-ShortcutDialog {
+    # Check if shortcut already exists
+    $desktopPath = [Environment]::GetFolderPath("Desktop")
+    $shortcutPath = Join-Path $desktopPath "TIFF Channel Merger.lnk"
+
+    if (Test-Path $shortcutPath) {
+        return $true  # Already exists, skip dialog
+    }
+
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        $script:texts["createShortcutDesc"],
+        $script:texts["createShortcut"],
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question
+    )
+
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        if (New-DesktopShortcut) {
+            [System.Windows.Forms.MessageBox]::Show(
+                $script:texts["shortcutCreated"],
+                $script:texts["createShortcut"],
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            )
+        } else {
+            [System.Windows.Forms.MessageBox]::Show(
+                $script:texts["shortcutError"] + " " + $_.Exception.Message,
+                $script:texts["error"],
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            )
+        }
+    }
+
+    return $true
 }
 
 # Function to convert Windows paths to Unix-style for VIPS
@@ -811,7 +892,7 @@ function Show-FileSelection {
 function Show-OutputConfiguration {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = $script:texts["outputName"]
-    $form.Size = New-Object System.Drawing.Size(520, 320)
+    $form.Size = New-Object System.Drawing.Size(600, 270)
     $form.StartPosition = "CenterScreen"
 
     # Set font for Unicode support
@@ -862,27 +943,22 @@ function Show-OutputConfiguration {
     })
     $form.Controls.Add($browseButton)
 
-    # Pyramid option
-    $pyramidLabel = New-Object System.Windows.Forms.Label
-    $pyramidLabel.Text = $script:texts["pyramidDesc"]
-    $pyramidLabel.Size = New-Object System.Drawing.Size(480, 80)
-    $pyramidLabel.Location = New-Object System.Drawing.Point(20, 160)
-    $pyramidLabel.Font = $font
-    $form.Controls.Add($pyramidLabel)
-
-    $pyramidCheckBox = New-Object System.Windows.Forms.CheckBox
-    $pyramidCheckBox.Text = $script:texts["pyramidOption"]
-    $pyramidCheckBox.Checked = $true
-    $pyramidCheckBox.Size = New-Object System.Drawing.Size(200, 23)
-    $pyramidCheckBox.Location = New-Object System.Drawing.Point(20, 245)
-    $pyramidCheckBox.Font = $font
-    $form.Controls.Add($pyramidCheckBox)
-
     # Buttons
+    $previousButton = New-Object System.Windows.Forms.Button
+    $previousButton.Text = $script:texts["previous"]
+    $previousButton.Size = New-Object System.Drawing.Size(100, 30)
+    $previousButton.Location = New-Object System.Drawing.Point(80, 180)
+    $previousButton.Font = $font
+    $previousButton.Add_Click({
+        $form.DialogResult = "Retry"  # Use "Retry" as signal to go back
+        $form.Close()
+    })
+    $form.Controls.Add($previousButton)
+
     $okButton = New-Object System.Windows.Forms.Button
     $okButton.Text = $script:texts["merge"]
     $okButton.Size = New-Object System.Drawing.Size(100, 30)
-    $okButton.Location = New-Object System.Drawing.Point(300, 245)
+    $okButton.Location = New-Object System.Drawing.Point(300, 180)
     $okButton.Font = $font
     $okButton.Add_Click({
         if ([string]::IsNullOrWhiteSpace($nameTextBox.Text)) {
@@ -896,7 +972,6 @@ function Show-OutputConfiguration {
 
         $script:outputName = $nameTextBox.Text -replace '[^\w\-_.]', '_'
         $script:outputPath = $locationTextBox.Text
-        $script:createPyramid = $pyramidCheckBox.Checked
 
         $form.DialogResult = "OK"
         $form.Close()
@@ -906,7 +981,7 @@ function Show-OutputConfiguration {
     $cancelButton = New-Object System.Windows.Forms.Button
     $cancelButton.Text = $script:texts["cancel"]
     $cancelButton.Size = New-Object System.Drawing.Size(100, 30)
-    $cancelButton.Location = New-Object System.Drawing.Point(410, 245)
+    $cancelButton.Location = New-Object System.Drawing.Point(410, 180)
     $cancelButton.Font = $font
     $cancelButton.Add_Click({
         $form.DialogResult = "Cancel"
@@ -920,6 +995,9 @@ function Show-OutputConfiguration {
     $result = $form.ShowDialog()
     $form.Dispose()
 
+    if ($result -eq "Retry") {
+        return "Retry"  # Signal to go back
+    }
     return $result -eq "OK"
 }
 
@@ -948,11 +1026,15 @@ function Invoke-ChannelMerge {
         $progressBar = New-Object System.Windows.Forms.ProgressBar
         $progressBar.Location = New-Object System.Drawing.Point(20, 90)
         $progressBar.Size = New-Object System.Drawing.Size(360, 23)
-        $progressBar.Style = "Marquee"
+        $progressBar.Style = "Continuous"
+        $progressBar.Minimum = 0
+        $progressBar.Maximum = 100
+        $progressBar.Value = 0
         $progressForm.Controls.Add($progressBar)
 
         $progressForm.Show()
         $progressForm.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
 
         # Prepare file paths - use .v format for temp to avoid TIFF memory limits
         $tempFile = Join-Path $script:outputPath "$($script:outputName)_temp.v"
@@ -1054,7 +1136,18 @@ $($script:selectedFiles | ForEach-Object { "  $_ : $(Test-Path $_)" } | Out-Stri
         Write-Host "Using two-step process with explicit tiffload --unlimited"
         Write-Host "Diagnostic log: $diagnosticLog"
 
+        # Update progress: 10% - Preparation complete
+        $progressLabel.Text = "Préparation terminée. Fusion des canaux en cours..."
+        $progressBar.Value = 10
+        $progressForm.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
+
         # Execute the batch file
+        $progressLabel.Text = "Fusion des canaux TIFF en cours (étape 1/3)..."
+        $progressBar.Value = 20
+        $progressForm.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
+
         $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$batchFile`"" -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$env:TEMP\vips_error.log"
 
         if ($process.ExitCode -ne 0 -or !(Test-Path $tempFile)) {
@@ -1069,13 +1162,17 @@ $($script:selectedFiles | ForEach-Object { "  $_ : $(Test-Path $_)" } | Out-Stri
             throw "VIPS processing failed. Check diagnostic log at: $diagnosticLog`n`nError: $errorOutput"
         }
 
+        # Update progress: 50% - Merge complete
+        $progressLabel.Text = "Fusion terminée. Création du fichier TIFF pyramidal (étape 2/3)..."
+        $progressBar.Value = 50
+        $progressForm.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
+
         # Create final file with tiffsave
         # Note: Do NOT use --properties here as it writes VIPS metadata to IMAGEDESCRIPTION
         # We will inject OME-XML later with Python script
-        $saveOptions = @("--compression=lzw", "--bigtiff")
-        if ($script:createPyramid) {
-            $saveOptions += @("--tile", "--tile-width=256", "--tile-height=256", "--pyramid")
-        }
+        # Always create pyramidal TIFF with LZW compression
+        $saveOptions = @("--compression=lzw", "--bigtiff", "--tile", "--tile-width=256", "--tile-height=256", "--pyramid")
         $hasChannelNames = $script:channelNames | Where-Object { $_ -ne "" }
         if ($hasChannelNames) {
             $channelList = @()
@@ -1089,9 +1186,10 @@ $($script:selectedFiles | ForEach-Object { "  $_ : $(Test-Path $_)" } | Out-Stri
             }
             Write-Host "Channel names saved for post-processing: $($channelList -join ', ')"
 
-            # Save channel names for post-processing
+            # Save channel names for post-processing (without BOM)
             $channelInfoFile = Join-Path $script:outputPath "$($script:outputName)_channels.txt"
-            ($channelList -join "`n") | Out-File -FilePath $channelInfoFile -Encoding UTF8
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($channelInfoFile, ($channelList -join "`n"), $utf8NoBom)
             Write-Host "Channel names saved to: $channelInfoFile"
         }
 
@@ -1124,6 +1222,11 @@ if exist "$finalFile" (echo SUCCESS: Final file created) else (echo ERROR: Final
 
         Write-Host "VIPS save command: $saveCommand"
 
+        $progressLabel.Text = "Sauvegarde du fichier TIFF en cours..."
+        $progressBar.Value = 60
+        $progressForm.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
+
         $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$saveBatchFile`"" -Wait -PassThru -RedirectStandardOutput "$env:TEMP\vips_save.log" -RedirectStandardError "$env:TEMP\vips_save_error.log"
 
         if ($process.ExitCode -ne 0 -or !(Test-Path $finalFile)) {
@@ -1138,12 +1241,20 @@ if exist "$finalFile" (echo SUCCESS: Final file created) else (echo ERROR: Final
             throw "VIPS tiffsave failed. Check diagnostic log at: $diagnosticLog`n`nError: $errorOutput"
         }
 
+        # Update progress: 85% - TIFF save complete
+        $progressLabel.Text = "Fichier TIFF créé. Ajout des métadonnées (étape 3/3)..."
+        $progressBar.Value = 85
+        $progressForm.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
+
         # Post-process to add OME-TIFF metadata if channel names are provided
         if ($hasChannelNames) {
             Write-Host "=== OME-TIFF POST-PROCESSING ==="
             Write-Host "Adding OME-TIFF metadata with channel names..."
-            $progressLabel.Text = "Adding OME metadata for QuPath..."
+            $progressLabel.Text = "Ajout des métadonnées OME-XML pour QuPath..."
+            $progressBar.Value = 90
             $progressForm.Refresh()
+            [System.Windows.Forms.Application]::DoEvents()
 
             $omeChannelNames = @()
             for ($i = 0; $i -lt $script:selectedFiles.Count; $i++) {
@@ -1205,11 +1316,12 @@ if exist "$finalFile" (echo SUCCESS: Final file created) else (echo ERROR: Final
 // Generated on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 
 import qupath.lib.images.servers.ImageChannel
+import qupath.lib.images.servers.ImageServerMetadata
 import java.nio.file.Paths
 import java.nio.file.Files
 
 // Path to the channel names file (same directory as TIFF)
-def channelFile = Paths.get(r'$((Join-Path $script:outputPath "$($script:outputName)_channels.txt").Replace('\', '\\'))')
+def channelFile = Paths.get('$((Join-Path $script:outputPath "$($script:outputName)_channels.txt").Replace('\', '/'))')
 
 if (!Files.exists(channelFile)) {
     println "ERROR: Channel names file not found:"
@@ -1247,9 +1359,9 @@ for (int i = 0; i < channels.size(); i++) {
     newChannels.add(ImageChannel.getInstance(name, color))
 }
 
-// Update the image metadata
-def newMetadata = server.getMetadata()
-    .getBuilder()
+// Update the image metadata using Builder constructor
+def originalMetadata = server.getMetadata()
+def newMetadata = new ImageServerMetadata.Builder(originalMetadata)
     .channels(newChannels)
     .build()
 
@@ -1264,7 +1376,9 @@ fireHierarchyUpdate()
 "@
 
             $groovyScriptPath = Join-Path $script:outputPath "QuPath_Import_$($script:outputName).groovy"
-            $groovyScript | Out-File -FilePath $groovyScriptPath -Encoding UTF8
+            # Save without BOM to avoid Groovy parsing issues
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($groovyScriptPath, $groovyScript, $utf8NoBom)
             Write-Host "QuPath script generated: $groovyScriptPath"
 
             # DISABLED: OME-XML injection causes file corruption for large pyramidal TIFFs
@@ -1323,7 +1437,7 @@ fireHierarchyUpdate()
             Write-Host "METHOD 1 - Automated (Recommended):"
             Write-Host "  1. Open $($script:outputName).tif in QuPath"
             Write-Host "  2. Set Image type: Image → Image type → Fluorescence"
-            Write-Host "  3. Run the script: Automate → Show script editor"
+            Write-Host "  3. Run the script: Automate → Script editor"
             Write-Host "  4. Open and run: QuPath_Import_$($script:outputName).groovy"
             Write-Host "  5. Channel names will be imported automatically!"
             Write-Host ""
@@ -1374,6 +1488,13 @@ fireHierarchyUpdate()
         Remove-Item "$env:TEMP\vips_save.log" -ErrorAction SilentlyContinue
         Remove-Item "$env:TEMP\vips_save_error.log" -ErrorAction SilentlyContinue
         Remove-Item $diagnosticLog -ErrorAction SilentlyContinue
+
+        # Update progress: 100% - Complete!
+        $progressLabel.Text = "Traitement terminé avec succès !"
+        $progressBar.Value = 100
+        $progressForm.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 500  # Brief pause to show completion
 
         $progressForm.Close()
 
@@ -1432,6 +1553,9 @@ function Start-TiffChannelMerger {
 
         Initialize-Texts $script:selectedLanguage
 
+        # Ask about desktop shortcut
+        Show-ShortcutDialog
+
         # Check VIPS installation
         if (!(Test-VipsInstallation)) {
             $result = [System.Windows.Forms.MessageBox]::Show($script:texts["vipsNotFound"], $script:texts["appTitle"], "YesNo", "Question")
@@ -1449,14 +1573,25 @@ function Start-TiffChannelMerger {
             return
         }
 
-        # File selection
-        if (!(Show-FileSelection)) {
-            return
-        }
+        # File selection and output configuration with back navigation support
+        $configComplete = $false
+        while (!$configComplete) {
+            # File selection
+            if (!(Show-FileSelection)) {
+                return
+            }
 
-        # Output configuration
-        if (!(Show-OutputConfiguration)) {
-            return
+            # Output configuration
+            $outputResult = Show-OutputConfiguration
+            if ($outputResult -eq $true) {
+                $configComplete = $true
+            } elseif ($outputResult -eq "Retry") {
+                # User clicked Previous, loop back to file selection
+                continue
+            } else {
+                # User cancelled
+                return
+            }
         }
 
         # Merge channels

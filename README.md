@@ -64,7 +64,6 @@ TIFF-Channel-Merger/
 ├── windows/                            # Windows Application
 │   ├── TIFF-Channel-Merger.ps1         # PowerShell GUI app
 │   ├── TIFF-Channel-Merger.bat         # Windows launcher
-│   ├── QuPath_channel_setup.groovy     # QuPath helper script
 │   ├── QuPath_Import_Instructions.md   # QuPath integration guide
 │   └── README-Windows.md               # Windows-specific docs
 ├── fusion_canaux_simple_script.sh      # VIPS usage examples (reference)
