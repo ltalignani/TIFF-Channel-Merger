@@ -58,7 +58,7 @@ function Initialize-Texts {
             "welcome" = "Bienvenue dans le Fusionneur de canaux TIFF`n`nCette application permet de fusionner plusieurs fichiers TIFF (correspondant à différents canaux de fluorescence) en un seul fichier TIFF multi-canal.`n`nLe fichier résultant pourra être ouvert dans QuPath pour l'analyse d'images de microscopie."
             "start" = "Commencer"
             "selectFiles" = "Sélectionner les fichiers TIFF"
-            "selectFilesDesc" = "Sélectionnez au moins 2 fichiers TIFF à fusionner :`nL'ordre dans la liste détermine l'ordre des canaux (le premier = Canal 1, le deuxième = Canal 2, etc.)`nUtilisez les boutons Monter/Descendre pour réorganiser."
+            "selectFilesDesc" = "Sélectionnez au moins 2 fichiers TIFF à fusionner :`nL'ordre dans la liste détermine l'ordre des canaux (fichier le plus haut dans la liste = Canal 1, le deuxième = Canal 2, etc.)`nUtilisez les boutons Monter/Descendre pour réorganiser."
             "addFile" = "Ajouter des fichiers"
             "removeFile" = "Supprimer"
             "channelNaming" = "Nommage des canaux"

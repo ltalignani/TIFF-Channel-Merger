@@ -1,6 +1,16 @@
 # Test OME-TIFF - Guide rapide
 
-## Problèmes corrigés (v3.7.1)
+> **⚠️ OBSOLETE - VERSION 3.10 UPDATE**
+>
+> Ce document décrit les tests pour l'injection OME-XML qui est **désactivée par défaut** dans la version 3.10 pour éviter la corruption des fichiers TIFF pyramidaux volumineux.
+>
+> **Pour l'utilisation actuelle v3.10**, voir `QuPath_Import_Instructions.md` qui explique la méthode recommandée avec fichiers sidecar.
+>
+> Ce document est conservé pour référence uniquement.
+
+---
+
+## Problèmes corrigés (v3.7.1) - Historique
 
 ### ✅ Problème 1 : Erreur d'encodage Unicode
 **Erreur :** `UnicodeEncodeError: 'charmap' codec can't encode character '\u2717'`

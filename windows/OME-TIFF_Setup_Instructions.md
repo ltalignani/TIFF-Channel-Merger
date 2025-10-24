@@ -1,8 +1,18 @@
 # OME-TIFF Setup Instructions
 
-## Overview
+> **⚠️ OBSOLETE - VERSION 3.10 UPDATE**
+>
+> This document describes OME-XML injection features that are **disabled by default** in version 3.10 to prevent file corruption with large pyramidal TIFFs.
+>
+> **For current v3.10 usage**, see `QuPath_Import_Instructions.md` which explains the recommended sidecar file method.
+>
+> This document is kept for reference only. The sidecar file approach is more reliable and preserves file integrity.
 
-Version 3.7+ of TIFF Channel Merger can create **true OME-TIFF files** where channel names are embedded directly in the TIFF file. This allows QuPath to automatically recognize channel names without any manual configuration!
+---
+
+## Overview (Historical - v3.7)
+
+Version 3.7 of TIFF Channel Merger could create **true OME-TIFF files** where channel names are embedded directly in the TIFF file. This feature is now disabled in v3.10 due to corruption issues with large files.
 
 ## Requirements
 

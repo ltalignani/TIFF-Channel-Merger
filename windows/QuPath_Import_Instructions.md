@@ -96,28 +96,31 @@ If the automated script doesn't work, you can manually rename channels:
 
 ## 🧪 Advanced: Why isn't OME-XML embedded in the TIFF?
 
+**Version 3.10 Design Decision**: OME-XML injection is **disabled by default** to ensure file integrity.
+
 For **large pyramidal TIFFs** (>1 GB), embedding OME-XML metadata directly into the TIFF file can cause **file corruption** because:
 
-- Python libraries like `tifffile` and `Pillow` load the **entire file into memory** (7+ GB!)
+- Most Python libraries (`tifffile`, `Pillow`) load the **entire file into memory** (7+ GB!)
 - When rewriting the file, they destroy the pyramidal structure
 - This results in empty or corrupted TIFF files
 
-The **solution** used by this application:
+The **solution** used by this application (v3.10):
 - Use **sidecar files** (`.ome.xml` and `_channels.txt`) to store metadata
 - Use a **QuPath script** to import the metadata safely
 - The TIFF file remains intact and pyramidal structure is preserved
+- This approach is **more reliable** and works for files of any size
 
-### Optional: Enable OME-XML embedding with tifftools
+### Advanced: Enable OME-XML embedding (at your own risk)
 
-If you want OME-XML embedded directly in the TIFF (so QuPath auto-recognizes channels), you can install `tifftools`:
+If you want to experiment with OME-XML embedding and have `tifftools` installed:
 
 ```bash
 pip install tifftools
 ```
 
-Then edit `TIFF-Channel-Merger.ps1` and uncomment the tifftools section (lines 1216-1235).
+Then edit `TIFF-Channel-Merger.ps1` and uncomment the tifftools section (around lines 1289-1308).
 
-**Note**: `tifftools` is the **only** Python library that can safely modify large pyramidal TIFFs without loading them entirely in memory.
+**⚠️ Warning**: Even with `tifftools`, OME-XML embedding may fail for very large files or complex pyramid structures. The sidecar file method is recommended for production use.
 
 ---
 

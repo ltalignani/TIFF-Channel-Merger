@@ -61,7 +61,7 @@ Dans TIFF Channel Merger, sélectionnez les fichiers du dossier `converted\` au 
 
 ### Solution 2 : Fusion directe avec fallback (AUTOMATIQUE)
 
-La version 3.7.1+ inclut un **fallback automatique** :
+La version 3.10 inclut un **fallback automatique** :
 
 1. Le programme essaie d'abord `tiffload --unlimited`
 2. Si échec, il essaie `vips copy --sequential` (plus tolérant)

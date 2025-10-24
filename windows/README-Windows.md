@@ -83,42 +83,37 @@ If automatic installation fails:
 3. Extract to: `%LOCALAPPDATA%\vips\`
 4. Ensure `vips.exe` is at: `%LOCALAPPDATA%\vips\bin\vips.exe`
 
-### Current Version Features (v3.7)
+### Current Version Features (v3.10)
 The current version includes:
 - **Memory fix**: No more crashes with 4+ large images (uses `--unlimited` + `.v` format)
-- **True OME-TIFF support**: Direct OME-XML injection into TIFF for QuPath auto-recognition (requires Python + tifftools/tifffile/Pillow)
+- **OME-XML metadata**: Generates sidecar `.ome.xml` files with complete channel metadata
+- **QuPath integration**: Auto-generated Groovy script for easy channel name import
 - **Character encoding**: Proper UTF-8 BOM support for French accents
 - **Channel ordering**: Interactive reordering with visual ▲/▼ buttons
-- **Channel naming**: Custom names embedded directly in TIFF IMAGEDESCRIPTION tag
+- **Channel naming**: Custom names saved in multiple formats for QuPath compatibility
 - **VIPS optimization**: Uses tiffload --unlimited with sequential access for large files
 - **Font rendering**: Microsoft Sans Serif for better Unicode support
 - **Error handling**: Improved VIPS installation with detailed diagnostics
-- **Fallback support**: Sidecar .ome.xml files when Python is not available
+- **File integrity**: OME-XML injection disabled by default to prevent corruption of large pyramidal TIFFs
 
-### Optional: Enable OME-TIFF Auto-Recognition in QuPath
+### QuPath Integration Methods
 
-For QuPath to automatically recognize channel names without manual setup, install Python with a TIFF library:
+The application creates several files to help import channel names into QuPath:
 
-```powershell
-# Option 1 (recommended):
-pip install tifftools
+1. **`.ome.xml` sidecar file**: Contains complete OME-XML metadata
+2. **`_channels.txt` file**: Simple list of channel names (one per line)
+3. **`QuPath_Import_*.groovy` script**: Auto-generated script for automated import
 
-# Option 2:
-pip install tifffile
+See `QuPath_Import_Instructions.md` for step-by-step usage instructions.
 
-# Option 3:
-pip install Pillow
-```
-
-See `OME-TIFF_Setup_Instructions.md` for detailed setup instructions.
-
-**Without Python:** Channel names are still available via sidecar `.ome.xml` file and Groovy script for manual import.
+**Note:** OME-XML embedding into TIFF files is disabled by default in v3.10 to prevent file corruption with large pyramidal TIFFs. The sidecar file approach is more reliable and preserves file integrity.
 
 ### Common Issues
 - **"Cannot load assembly"**: Install .NET Framework 4.5+
 - **"VIPS not found"**: Allow automatic installation or install manually
 - **"Access denied"**: Ensure you have write permissions to `%LOCALAPPDATA%`
-- **"Memory errors with 4+ channels"**: Update to version 3.7+ which fixes this issue
+- **"Memory errors with 4+ channels"**: Update to version 3.10 which fixes this issue
+- **"Channel names not appearing in QuPath"**: Use the auto-generated Groovy script to import them (see QuPath_Import_Instructions.md)
 
 ## 📝 Usage Instructions
 
