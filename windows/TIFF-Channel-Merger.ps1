@@ -1186,9 +1186,10 @@ $($script:selectedFiles | ForEach-Object { "  $_ : $(Test-Path $_)" } | Out-Stri
             }
             Write-Host "Channel names saved for post-processing: $($channelList -join ', ')"
 
-            # Save channel names for post-processing (without BOM)
+            # Save channel names for post-processing (without BOM, with LF line endings)
             $channelInfoFile = Join-Path $script:outputPath "$($script:outputName)_channels.txt"
             $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            # Use LF (\n) for Unix compatibility - Groovy script will read this file
             [System.IO.File]::WriteAllText($channelInfoFile, ($channelList -join "`n"), $utf8NoBom)
             Write-Host "Channel names saved to: $channelInfoFile"
         }
@@ -1376,9 +1377,10 @@ fireHierarchyUpdate()
 "@
 
             $groovyScriptPath = Join-Path $script:outputPath "QuPath_Import_$($script:outputName).groovy"
-            # Save without BOM to avoid Groovy parsing issues
+            # Save without BOM and with LF line endings (Unix convention for Groovy/Java)
             $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-            [System.IO.File]::WriteAllText($groovyScriptPath, $groovyScript, $utf8NoBom)
+            $groovyScriptUnix = $groovyScript -replace "`r`n", "`n"
+            [System.IO.File]::WriteAllText($groovyScriptPath, $groovyScriptUnix, $utf8NoBom)
             Write-Host "QuPath script generated: $groovyScriptPath"
 
             # DISABLED: OME-XML injection causes file corruption for large pyramidal TIFFs

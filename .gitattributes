@@ -1,0 +1,31 @@
+# Normalize line endings for text files
+* text=auto
+
+# Shell scripts must use LF (Unix) - critical for macOS/Linux
+*.sh text eol=lf
+
+# PowerShell scripts use CRLF (Windows standard)
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Groovy scripts use LF (Java/Groovy convention)
+*.groovy text eol=lf
+
+# Python scripts use LF (Python convention)
+*.py text eol=lf
+
+# Documentation and text files - auto-detect
+*.md text
+*.txt text
+*.json text
+*.xml text
+
+# Binary files - never modify
+*.tif binary
+*.tiff binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary
+*.gz binary
