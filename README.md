@@ -190,9 +190,28 @@ cd macOS/
 
 ## 📄 License & Credits
 
-- **VIPS Library**: https://libvips.github.io/libvips/
-- **QuPath**: https://qupath.github.io/
-- **Development**: Cross-platform microscopy image processing tool
+### License
+
+This project is licensed under the **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)**.
+
+- ✅ Free for academic and research use
+- ✅ Free for educational purposes
+- ❌ Commercial use prohibited
+- 📝 Attribution required
+- 🔄 Derivative works must use the same license
+
+See the [LICENSE](LICENSE) file for details.
+
+### Authors
+
+**Developed by:**
+- **Loïc Talignani** - Lead Developer
+- **Céline Talignani** - Co-Developer
+
+### Third-Party Software
+
+- **VIPS Library**: https://libvips.github.io/libvips/ (LGPL 2.1+)
+- **QuPath**: https://qupath.github.io/ (GPL-3.0)
 
 ---
 

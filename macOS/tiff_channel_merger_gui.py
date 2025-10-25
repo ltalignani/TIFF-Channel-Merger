@@ -4,6 +4,13 @@
 TIFF Channel Merger for macOS
 Version 4.0 - Advanced GUI with channel ordering and naming
 Python/Tkinter implementation for enhanced user experience
+
+Copyright (c) 2024 Loïc Talignani & Céline Talignani
+
+This work is licensed under the Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International License.
+To view a copy of this license, visit:
+http://creativecommons.org/licenses/by-nc-sa/4.0/
 """
 
 import tkinter as tk

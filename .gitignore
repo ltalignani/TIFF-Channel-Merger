@@ -1,4 +1,36 @@
+# Claude Code
 .claude
-CLAUDE.md
-OLD
-windows/OLD
+
+# macOS
+.DS_Store
+*.DS_Store
+
+# Development archives
+OLD/
+windows/OLD/
+macOS/OLD/
+
+# VIPS logs
+vips_output.log
+vips_error.log
+vips_diagnostic.log
+
+# Temporary files
+*.tmp
+*.temp
+*_temp.tif
+*.v
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

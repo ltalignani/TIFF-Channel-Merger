@@ -1,5 +1,13 @@
 ﻿# TIFF Channel Merger for Windows - Ultra Final Version v2
 # Version 3.12 - Fixed QuPath script compatibility
+#
+# Copyright (c) 2024 Loïc Talignani & Céline Talignani
+#
+# This work is licensed under the Creative Commons
+# Attribution-NonCommercial-ShareAlike 4.0 International License.
+# To view a copy of this license, visit:
+# http://creativecommons.org/licenses/by-nc-sa/4.0/
+#
 # - FIXED: Groovy script generation now uses UTF-8 without BOM (removed invisible character bug)
 # - FIXED: Channel names file now saved without BOM (fixes "﻿DAPI" issue)
 # - FIXED: QuPath API compatibility - uses ImageServerMetadata.Builder constructor
