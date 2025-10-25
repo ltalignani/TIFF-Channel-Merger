@@ -97,11 +97,14 @@ vips bandjoin "file1.tif file2.tif file3.tif" output.tif
 vips tiffsave input.tif output.tif --compression=lzw --tile --tile-width=256 --tile-height=256 --pyramid --bigtiff
 ```
 
-### OME-XML Metadata
-When channel names are provided, the application creates:
-1. **Multi-channel TIFF**: Standard merged file
-2. **OME-XML sidecar**: `filename.ome.xml` with channel metadata
-3. QuPath automatically detects and uses the metadata
+### OME-XML Metadata & QuPath Integration
+When channel names are provided, the application creates **4 files**:
+1. **Multi-channel TIFF**: `merged_channels.tif` - Your final image
+2. **OME-XML sidecar**: `merged_channels.ome.xml` - Complete metadata
+3. **Channel names text file**: `merged_channels_channels.txt` - Simple list of names
+4. **QuPath import script**: `QuPath_Import_merged_channels.groovy` - Automated import
+
+See `QuPath_Import_Instructions.md` for detailed usage instructions.
 
 ## 🛠️ Troubleshooting
 

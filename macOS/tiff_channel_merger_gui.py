@@ -286,16 +286,17 @@ class TIFFChannelMerger:
                   command=self.root.quit).pack(side=tk.LEFT, padx=10)
 
     def add_file(self):
-        """Add TIFF file to list"""
-        file_path = filedialog.askopenfilename(
-            title="Select TIFF file",
+        """Add TIFF file(s) to list - supports multiple selection"""
+        file_paths = filedialog.askopenfilenames(
+            title="Select TIFF file(s)",
             filetypes=[("TIFF files", "*.tif *.tiff"), ("All files", "*.*")]
         )
 
-        if file_path:
-            self.selected_files.append(file_path)
-            self.channel_names.append("")
-            self.file_listbox.insert(tk.END, os.path.basename(file_path))
+        if file_paths:
+            for file_path in file_paths:
+                self.selected_files.append(file_path)
+                self.channel_names.append("")
+                self.file_listbox.insert(tk.END, os.path.basename(file_path))
             self.update_channel_naming()
 
     def remove_file(self):
@@ -606,9 +607,16 @@ class TIFFChannelMerger:
             print(f"  ⚠ Could not save logs: {e}")
 
     def create_ome_xml(self, tiff_file, output_base):
-        """Create OME-XML sidecar file"""
+        """Create OME-XML sidecar file and QuPath import files"""
         channel_count = len(self.selected_files)
 
+        # Prepare channel names list
+        channel_names_list = []
+        for i, name in enumerate(self.channel_names):
+            channel_name = name.strip() if name.strip() else f"Channel_{i+1}"
+            channel_names_list.append(channel_name)
+
+        # 1. Create OME-XML sidecar file
         ome_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <!-- Warning: this comment is an OME-XML metadata block, which contains crucial dimensional parameters and other important metadata. -->
 <OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06"
@@ -620,11 +628,10 @@ class TIFFChannelMerger:
             SizeC="{channel_count}" SizeT="1" SizeX="1024" SizeY="1024" SizeZ="1">
 '''
 
-        for i, name in enumerate(self.channel_names):
-            channel_name = name.strip() if name.strip() else f"Channel_{i+1}"
+        for i, channel_name in enumerate(channel_names_list):
             # Escape XML special characters
-            channel_name = channel_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            ome_xml += f'      <Channel ID="Channel:0:{i}" Name="{channel_name}"/>\n'
+            channel_name_escaped = channel_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            ome_xml += f'      <Channel ID="Channel:0:{i}" Name="{channel_name_escaped}"/>\n'
 
         ome_xml += f'''      <TiffData IFD="0" PlaneCount="{channel_count}"/>
     </Pixels>
@@ -634,6 +641,118 @@ class TIFFChannelMerger:
         ome_file = output_base + ".ome.xml"
         with open(ome_file, 'w', encoding='utf-8') as f:
             f.write(ome_xml)
+
+        # 2. Create channel names text file (for QuPath script)
+        channels_txt_file = output_base + "_channels.txt"
+        with open(channels_txt_file, 'w', encoding='utf-8') as f:
+            for channel_name in channel_names_list:
+                f.write(channel_name + '\n')
+
+        # 3. Create QuPath Groovy import script
+        self.create_qupath_script(output_base, channels_txt_file)
+
+    def create_qupath_script(self, output_base, channels_txt_file):
+        """Create QuPath Groovy script for importing channel names"""
+        script_filename = f"QuPath_Import_{os.path.basename(output_base)}.groovy"
+        script_path = os.path.join(os.path.dirname(output_base), script_filename)
+
+        # Get relative path to channels.txt file (in same directory)
+        channels_txt_basename = os.path.basename(channels_txt_file)
+
+        # Determine language for comments
+        is_french = self.language.get() == "Français"
+
+        if is_french:
+            comment_header = "// Script QuPath - Importation automatique des noms de canaux"
+            comment_generated = "// Généré automatiquement par TIFF Channel Merger"
+            comment_instructions = """// INSTRUCTIONS D'UTILISATION :
+// 1. Ouvrez votre image fusionnée dans QuPath
+// 2. Définissez le type d'image : Image → Type d'image → Fluorescence
+// 3. Ouvrez l'éditeur de script : Automatiser → Afficher l'éditeur de script
+// 4. Ouvrez ce script : Fichier → Ouvrir le script...
+// 5. Exécutez le script : Cliquez sur Exécuter (▶) ou appuyez sur Ctrl+R"""
+            msg_reading = "Lecture des noms de canaux depuis"
+            msg_found = "canaux trouvés"
+            msg_channel = "Canal"
+            msg_success = "✅ Noms de canaux mis à jour avec succès !"
+            msg_verify = "Les noms de canaux devraient maintenant apparaître dans le panneau Luminosité/Contraste."
+            msg_error_file = "❌ ERREUR : Impossible de trouver le fichier"
+            msg_error_verify = "Vérifiez que le fichier est dans le même dossier que ce script."
+            msg_error_no_image = "❌ ERREUR : Aucune image n'est ouverte dans QuPath."
+            msg_error_open = "Veuillez d'abord ouvrir votre image fusionnée."
+        else:
+            comment_header = "// QuPath Script - Automatic channel name import"
+            comment_generated = "// Auto-generated by TIFF Channel Merger"
+            comment_instructions = """// USAGE INSTRUCTIONS:
+// 1. Open your merged image in QuPath
+// 2. Set image type: Image → Image type → Fluorescence
+// 3. Open script editor: Automate → Show script editor
+// 4. Open this script: File → Open script...
+// 5. Run the script: Click Run (▶) or press Ctrl+R"""
+            msg_reading = "Reading channel names from"
+            msg_found = "channels found"
+            msg_channel = "Channel"
+            msg_success = "✅ Channel names updated successfully!"
+            msg_verify = "The channel names should now appear in the Brightness/Contrast panel."
+            msg_error_file = "❌ ERROR: Could not find file"
+            msg_error_verify = "Make sure the file is in the same folder as this script."
+            msg_error_no_image = "❌ ERROR: No image is open in QuPath."
+            msg_error_open = "Please open your merged image first."
+
+        groovy_script = f'''import qupath.lib.images.servers.ImageServerMetadata
+import qupath.lib.images.servers.ImageChannel
+import java.awt.Color
+
+{comment_header}
+{comment_generated}
+{comment_instructions}
+
+def imageData = getCurrentImageData()
+if (imageData == null) {{
+    println("{msg_error_no_image}")
+    println("{msg_error_open}")
+    return
+}}
+
+def server = imageData.getServer()
+def scriptDir = new File(getClass().protectionDomain.codeSource.location.path).parent
+def channelFile = new File(scriptDir, "{channels_txt_basename}")
+
+if (!channelFile.exists()) {{
+    println("{msg_error_file}: " + channelFile.absolutePath)
+    println("{msg_error_verify}")
+    return
+}}
+
+println("{msg_reading}: " + channelFile.name)
+def channelNames = channelFile.readLines()
+    .collect {{ it.trim() }}
+    .findAll {{ !it.isEmpty() }}
+
+println("Found " + channelNames.size() + " {msg_found}:")
+channelNames.eachWithIndex {{ name, idx ->
+    println("  {msg_channel} " + idx + ": " + name)
+}}
+
+def channels = []
+channelNames.eachWithIndex {{ name, idx ->
+    channels << ImageChannel.getInstance(name, Color.WHITE)
+}}
+
+def metadata = server.getMetadata()
+def updatedMetadata = new ImageServerMetadata.Builder(metadata)
+    .channels(channels)
+    .build()
+
+imageData.updateServerMetadata(updatedMetadata)
+
+println()
+println("{msg_success}")
+println("{msg_verify}")
+'''
+
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(groovy_script)
 
     def show_success(self, final_file, output_location):
         """Show success message"""

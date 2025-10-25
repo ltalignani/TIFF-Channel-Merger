@@ -12,6 +12,7 @@ Cross-platform application for merging multiple TIFF files (fluorescence channel
 ## 🚀 Quick Start
 
 ### macOS
+
 ```bash
 cd macOS/
 open "TIFF Channel Merger.app"
@@ -20,6 +21,7 @@ open "TIFF Channel Merger.app"
 ```
 
 ### Windows
+
 ```cmd
 cd windows\
 TIFF-Channel-Merger.bat
@@ -28,6 +30,7 @@ TIFF-Channel-Merger.bat
 ## 📋 Features
 
 ### ✨ Core Functionality
+
 - **Multi-channel merging**: Combine 2+ TIFF files into single multi-channel image
 - **Interactive channel ordering**: Reorder files with ▲/▼ buttons to control channel assignment
 - **Channel naming**: Assign custom names to each channel for QuPath identification
@@ -37,6 +40,7 @@ TIFF-Channel-Merger.bat
 - **BigTIFF support**: Handle files larger than 4GB
 
 ### 🌍 User Experience
+
 - **Bilingual interface**: Complete French/English localization
 - **Modern GUI**: Python/Tkinter (macOS) and WinForms (Windows)
 - **Visual file ordering**: See and rearrange channel order before merging
@@ -45,6 +49,7 @@ TIFF-Channel-Merger.bat
 - **Auto-installation**: VIPS dependency management (Windows)
 
 ### 🔧 Technical Features
+
 - **Cross-platform parity**: Identical features on macOS and Windows
 - **VIPS integration**: Professional image processing library
 - **QuPath optimization**: OME-XML metadata for automatic channel recognition
@@ -75,6 +80,7 @@ TIFF-Channel-Merger/
 ## 🛠️ Installation & Setup
 
 ### macOS Prerequisites
+
 ```bash
 # Install Homebrew (if not present)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -87,6 +93,7 @@ brew install vips
 ```
 
 ### Windows Prerequisites
+
 - Windows 10/11 (PowerShell 5.1+ pre-installed)
 - .NET Framework 4.5+ (usually pre-installed)
 - VIPS will be automatically downloaded and installed
@@ -109,12 +116,14 @@ brew install vips
 The merged TIFF files are optimized for QuPath with **automatic channel recognition**:
 
 **With OME-XML metadata** (when channel names are provided):
+
 1. **Open** the merged TIFF file in QuPath
 2. QuPath automatically detects the `.ome.xml` sidecar file
 3. **Channel names appear as specified** in the merger
 4. **Adjust**: View → Brightness/Contrast (Shift+C) to customize colors
 
 **Without metadata** (channel names not provided):
+
 1. **Open** the merged file in QuPath
 2. **Set image type**: Image → Image type → Fluorescence
 3. **Adjust channels**: View → Brightness/Contrast (Shift+C)
@@ -123,6 +132,7 @@ The merged TIFF files are optimized for QuPath with **automatic channel recognit
 ## 🎯 Technical Specifications
 
 ### Supported Formats
+
 - **Input**: TIFF (.tif, .tiff) - single channel files
 - **Output**: Multi-channel TIFF with metadata preservation
 - **Metadata**: OME-XML sidecar files (.ome.xml) for QuPath
@@ -130,6 +140,7 @@ The merged TIFF files are optimized for QuPath with **automatic channel recognit
 - **Large files**: BigTIFF format for >4GB images
 
 ### VIPS Commands Used
+
 ```bash
 # Basic channel merging
 vips bandjoin "ch1.tif ch2.tif ch3.tif" merged.tif
@@ -142,6 +153,7 @@ vips tiffsave merged.tif output.tif \
 ```
 
 ### Performance Guidelines
+
 - **Memory efficient**: Streaming processing via VIPS
 - **Small images** (<1GB): Standard TIFF recommended
 - **Large images** (>1GB): Pyramidal TIFF recommended
@@ -152,16 +164,19 @@ vips tiffsave merged.tif output.tif \
 ### Common Issues
 
 **macOS:**
+
 - **VIPS not found**: Install via `brew install vips`
 - **App won't open**: Right-click → Open to bypass security
 - **Permission errors**: Check file/folder permissions
 
 **Windows:**
+
 - **PowerShell blocked**: Run `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
 - **VIPS download fails**: Check internet connection and firewall
 - **GUI not loading**: Ensure .NET Framework 4.5+ is installed
 
 ### Getting Help
+
 - Check platform-specific README files in `macOS/` and `windows/` directories
 - Review `CLAUDE.md` for development documentation
 - Verify VIPS installation: `vips --version`
@@ -171,6 +186,7 @@ vips tiffsave merged.tif output.tif \
 ### Building from Source
 
 **macOS:**
+
 ```bash
 cd macOS/
 # Build application bundle
@@ -179,10 +195,12 @@ cd macOS/
 ```
 
 **Windows:**
+
 - Edit `TIFF-Channel-Merger.ps1` as needed
 - No compilation required - PowerShell script runs directly
 
 ### Contributing
+
 - Follow platform-specific development patterns
 - Maintain bilingual support in all user-facing text
 - Test on both platforms when making changes
@@ -205,13 +223,14 @@ See the [LICENSE](LICENSE) file for details.
 ### Authors
 
 **Developed by:**
-- **Loïc Talignani** - Lead Developer
+
 - **Céline Talignani** - Co-Developer
+- **Loïc Talignani** - Co-Developer
 
 ### Third-Party Software
 
-- **VIPS Library**: https://libvips.github.io/libvips/ (LGPL 2.1+)
-- **QuPath**: https://qupath.github.io/ (GPL-3.0)
+- **VIPS Library**: <https://libvips.github.io/libvips/> (LGPL 2.1+)
+- **QuPath**: <https://qupath.github.io/> (GPL-3.0)
 
 ---
 

@@ -1,6 +1,11 @@
 #!/bin/bash
+# TIFF Channel Merger - macOS Launcher
 # Double-cliquez sur ce fichier pour lancer TIFF Channel Merger
 # Double-click this file to launch TIFF Channel Merger
+#
+# Copyright (c) 2024 Loïc Talignani & Céline Talignani
+# Licensed under CC BY-NC-SA 4.0
+# http://creativecommons.org/licenses/by-nc-sa/4.0/
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
