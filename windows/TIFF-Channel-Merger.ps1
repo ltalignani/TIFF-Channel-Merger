@@ -113,7 +113,7 @@ function Initialize-Texts {
             "outputLocationDesc" = "Choisissez où sauvegarder le fichier fusionné :"
             "browse" = "Parcourir..."
             "summary" = "Récapitulatif"
-            "merge" = "Fusionner"
+            "merge" = "Ajout / Fusion"
             "merging" = "Fusion en cours..."
             "mergingDesc" = "Fusion des canaux TIFF en cours. Veuillez patienter..."
             "success" = "Succès !"
@@ -177,7 +177,7 @@ function Initialize-Texts {
             "jobsErrors" = "Jobs en erreur :"
             "totalTime" = "Temps total :"
             "viewReport" = "Voir le rapport"
-            "autoNumbering" = "Numérotation automatique"
+            "autoNumbering" = "Numérotation auto."
             "autoNumberingDesc" = "Générer automatiquement les noms de sortie (ex: output_001, output_002, etc.)"
             "baseNamePrompt" = "Nom de base pour la numérotation :"
             "validateFiles" = "Validation des fichiers"
@@ -1100,7 +1100,7 @@ function Show-OutputConfiguration {
 
     $okButton = New-Object System.Windows.Forms.Button
     $okButton.Text = $script:texts["merge"]
-    $okButton.Size = New-Object System.Drawing.Size(100, 30)
+    $okButton.Size = New-Object System.Drawing.Size(110, 30)
     $okButton.Location = New-Object System.Drawing.Point(300, 180)
     $okButton.Font = $font
     $okButton.Add_Click({
@@ -1696,7 +1696,7 @@ fireHierarchyUpdate()
 function Show-ModeSelection {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = $script:texts["modeSelection"]
-    $form.Size = New-Object System.Drawing.Size(500, 350)
+    $form.Size = New-Object System.Drawing.Size(520, 350)
     $form.StartPosition = "CenterScreen"
     $form.FormBorderStyle = "FixedDialog"
     $form.MaximizeBox = $false
@@ -2013,7 +2013,7 @@ function Remove-BatchJob {
 function Show-BatchJobManager {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = $script:texts["batchJobManager"]
-    $form.Size = New-Object System.Drawing.Size(900, 700)
+    $form.Size = New-Object System.Drawing.Size(940, 740)
     $form.StartPosition = "CenterScreen"
 
     $font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
