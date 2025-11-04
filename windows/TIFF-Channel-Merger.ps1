@@ -40,6 +40,45 @@ $script:selectedFiles = @()
 $script:channelNames = @()
 $script:vipsPath = ""
 
+# Batch mode global variables
+$script:batchMode = $false
+$script:batchJobs = @()
+$script:currentBatchJobIndex = -1
+$script:batchProcessingPaused = $false
+$script:batchProcessingCancelled = $false
+$script:batchStartTime = $null
+$script:outputName = ""
+$script:outputPath = ""
+
+# BatchJob class definition
+class BatchJob {
+    [string]$JobName
+    [string[]]$SelectedFiles
+    [string[]]$ChannelNames
+    [string]$OutputName
+    [string]$OutputPath
+    [string]$Status  # "Pending", "Running", "Completed", "Error"
+    [string]$ErrorMessage
+    [datetime]$StartTime
+    [datetime]$EndTime
+
+    BatchJob() {
+        $this.Status = "Pending"
+        $this.ErrorMessage = ""
+    }
+
+    [double]GetDuration() {
+        if ($this.EndTime -and $this.StartTime) {
+            return ($this.EndTime - $this.StartTime).TotalSeconds
+        }
+        return 0
+    }
+
+    [string]GetDisplayName() {
+        return "$($this.JobName) ($($this.SelectedFiles.Count) $($script:texts['channels']) → $($this.OutputName).tif)"
+    }
+}
+
 # Language definitions with proper UTF-8 encoding
 function Initialize-Texts {
     param([string]$language)
@@ -96,6 +135,54 @@ function Initialize-Texts {
             "moveUp" = "Monter"
             "moveDown" = "Descendre"
             "previous" = "Précédent"
+            # Batch mode translations
+            "modeSelection" = "Mode de traitement"
+            "modeSelectionDesc" = "Choisissez le mode de traitement :"
+            "singleMode" = "Mode Simple"
+            "singleModeDesc" = "Fusionner une seule image (comportement standard)"
+            "batchMode" = "Mode Batch (Lot)"
+            "batchModeDesc" = "Configurer et traiter plusieurs images automatiquement"
+            "batchJobManager" = "Gestionnaire de tâches batch"
+            "batchJobList" = "Liste des images à traiter :"
+            "selectedJob" = "Job sélectionné :"
+            "newJob" = "+ Nouveau job"
+            "editJob" = "✏ Modifier"
+            "deleteJob" = "🗑 Supprimer"
+            "saveBatch" = "💾 Sauvegarder la liste"
+            "loadBatch" = "📂 Charger une liste"
+            "processJobs" = "Traiter les jobs"
+            "batchProcessing" = "Traitement batch en cours"
+            "jobList" = "Liste des jobs"
+            "controlsAndProgress" = "Contrôles et progression"
+            "startAll" = "▶ Lancer tout"
+            "pause" = "⏸ Pause"
+            "stop" = "⏹ Arrêter"
+            "currentJob" = "Job actuel :"
+            "timeElapsed" = "Temps écoulé :"
+            "timeEstimated" = "Temps estimé :"
+            "journal" = "Journal :"
+            "hide" = "Masquer"
+            "pending" = "En attente"
+            "running" = "En cours"
+            "completed" = "Terminé"
+            "errorStatus" = "Erreur"
+            "channels" = "canaux"
+            "noJobs" = "Aucun job dans la liste. Cliquez sur '+ Nouveau job' pour ajouter une image à traiter."
+            "deleteJobConfirm" = "Êtes-vous sûr de vouloir supprimer ce job ?"
+            "saveSuccess" = "Liste de jobs sauvegardée avec succès !"
+            "loadSuccess" = "Liste de jobs chargée avec succès !"
+            "batchComplete" = "Traitement batch terminé !"
+            "batchCompleteDesc" = "Tous les jobs ont été traités."
+            "jobsCompleted" = "Jobs terminés :"
+            "jobsErrors" = "Jobs en erreur :"
+            "totalTime" = "Temps total :"
+            "viewReport" = "Voir le rapport"
+            "autoNumbering" = "Numérotation automatique"
+            "autoNumberingDesc" = "Générer automatiquement les noms de sortie (ex: output_001, output_002, etc.)"
+            "baseNamePrompt" = "Nom de base pour la numérotation :"
+            "validateFiles" = "Validation des fichiers"
+            "missingFiles" = "fichier(s) manquant(s)"
+            "jsonFilter" = "Fichiers JSON (*.json)|*.json"
         }
     } else {
         $script:texts = @{
@@ -149,6 +236,54 @@ function Initialize-Texts {
             "moveUp" = "Move Up"
             "moveDown" = "Move Down"
             "previous" = "Previous"
+            # Batch mode translations
+            "modeSelection" = "Processing Mode"
+            "modeSelectionDesc" = "Choose processing mode:"
+            "singleMode" = "Single Mode"
+            "singleModeDesc" = "Merge a single image (standard behavior)"
+            "batchMode" = "Batch Mode"
+            "batchModeDesc" = "Configure and process multiple images automatically"
+            "batchJobManager" = "Batch Job Manager"
+            "batchJobList" = "Images to process:"
+            "selectedJob" = "Selected job:"
+            "newJob" = "+ New job"
+            "editJob" = "✏ Edit"
+            "deleteJob" = "🗑 Delete"
+            "saveBatch" = "💾 Save list"
+            "loadBatch" = "📂 Load list"
+            "processJobs" = "Process jobs"
+            "batchProcessing" = "Batch processing in progress"
+            "jobList" = "Job list"
+            "controlsAndProgress" = "Controls and progress"
+            "startAll" = "▶ Start all"
+            "pause" = "⏸ Pause"
+            "stop" = "⏹ Stop"
+            "currentJob" = "Current job:"
+            "timeElapsed" = "Time elapsed:"
+            "timeEstimated" = "Estimated time:"
+            "journal" = "Log:"
+            "hide" = "Hide"
+            "pending" = "Pending"
+            "running" = "Running"
+            "completed" = "Completed"
+            "errorStatus" = "Error"
+            "channels" = "channels"
+            "noJobs" = "No jobs in the list. Click '+ New job' to add an image to process."
+            "deleteJobConfirm" = "Are you sure you want to delete this job?"
+            "saveSuccess" = "Job list saved successfully!"
+            "loadSuccess" = "Job list loaded successfully!"
+            "batchComplete" = "Batch processing completed!"
+            "batchCompleteDesc" = "All jobs have been processed."
+            "jobsCompleted" = "Completed jobs:"
+            "jobsErrors" = "Jobs with errors:"
+            "totalTime" = "Total time:"
+            "viewReport" = "View report"
+            "autoNumbering" = "Auto-numbering"
+            "autoNumberingDesc" = "Automatically generate output names (e.g., output_001, output_002, etc.)"
+            "baseNamePrompt" = "Base name for numbering:"
+            "validateFiles" = "File validation"
+            "missingFiles" = "missing file(s)"
+            "jsonFilter" = "JSON Files (*.json)|*.json"
         }
     }
 }
@@ -1553,6 +1688,1030 @@ fireHierarchyUpdate()
     }
 }
 
+# ============================================================================
+# BATCH MODE FUNCTIONS
+# ============================================================================
+
+# Function to show mode selection dialog (Single vs Batch)
+function Show-ModeSelection {
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = $script:texts["modeSelection"]
+    $form.Size = New-Object System.Drawing.Size(500, 350)
+    $form.StartPosition = "CenterScreen"
+    $form.FormBorderStyle = "FixedDialog"
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+
+    $font = New-Object System.Drawing.Font("Microsoft Sans Serif", 10)
+    $form.Font = $font
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = $script:texts["modeSelectionDesc"]
+    $label.Size = New-Object System.Drawing.Size(460, 40)
+    $label.Location = New-Object System.Drawing.Point(20, 20)
+    $label.Font = $font
+    $form.Controls.Add($label)
+
+    # Single mode button (styled as a panel)
+    $singlePanel = New-Object System.Windows.Forms.Panel
+    $singlePanel.BorderStyle = "FixedSingle"
+    $singlePanel.Size = New-Object System.Drawing.Size(460, 80)
+    $singlePanel.Location = New-Object System.Drawing.Point(20, 70)
+    $singlePanel.BackColor = [System.Drawing.Color]::WhiteSmoke
+    $singlePanel.Cursor = [System.Windows.Forms.Cursors]::Hand
+
+    $singleRadio = New-Object System.Windows.Forms.RadioButton
+    $singleRadio.Text = "🔹 " + $script:texts["singleMode"]
+    $singleRadio.Size = New-Object System.Drawing.Size(440, 30)
+    $singleRadio.Location = New-Object System.Drawing.Point(10, 10)
+    $singleRadio.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 11, [System.Drawing.FontStyle]::Bold)
+    $singleRadio.Checked = $true
+    $singlePanel.Controls.Add($singleRadio)
+
+    $singleDesc = New-Object System.Windows.Forms.Label
+    $singleDesc.Text = $script:texts["singleModeDesc"]
+    $singleDesc.Size = New-Object System.Drawing.Size(440, 30)
+    $singleDesc.Location = New-Object System.Drawing.Point(30, 40)
+    $singleDesc.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
+    $singlePanel.Controls.Add($singleDesc)
+
+    $singlePanel.Add_Click({ $singleRadio.Checked = $true })
+    $form.Controls.Add($singlePanel)
+
+    # Batch mode button (styled as a panel)
+    $batchPanel = New-Object System.Windows.Forms.Panel
+    $batchPanel.BorderStyle = "FixedSingle"
+    $batchPanel.Size = New-Object System.Drawing.Size(460, 80)
+    $batchPanel.Location = New-Object System.Drawing.Point(20, 160)
+    $batchPanel.BackColor = [System.Drawing.Color]::WhiteSmoke
+    $batchPanel.Cursor = [System.Windows.Forms.Cursors]::Hand
+
+    $batchRadio = New-Object System.Windows.Forms.RadioButton
+    $batchRadio.Text = "🔹 " + $script:texts["batchMode"]
+    $batchRadio.Size = New-Object System.Drawing.Size(440, 30)
+    $batchRadio.Location = New-Object System.Drawing.Point(10, 10)
+    $batchRadio.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 11, [System.Drawing.FontStyle]::Bold)
+    $batchPanel.Controls.Add($batchRadio)
+
+    $batchDesc = New-Object System.Windows.Forms.Label
+    $batchDesc.Text = $script:texts["batchModeDesc"]
+    $batchDesc.Size = New-Object System.Drawing.Size(440, 30)
+    $batchDesc.Location = New-Object System.Drawing.Point(30, 40)
+    $batchDesc.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
+    $batchPanel.Controls.Add($batchDesc)
+
+    $batchPanel.Add_Click({ $batchRadio.Checked = $true })
+    $form.Controls.Add($batchPanel)
+
+    # Buttons
+    $okButton = New-Object System.Windows.Forms.Button
+    $okButton.Text = $script:texts["continue"]
+    $okButton.Size = New-Object System.Drawing.Size(120, 35)
+    $okButton.Location = New-Object System.Drawing.Point(250, 260)
+    $okButton.Font = $font
+    $okButton.Add_Click({
+        if ($batchRadio.Checked) {
+            $script:batchMode = $true
+        } else {
+            $script:batchMode = $false
+        }
+        $form.DialogResult = "OK"
+        $form.Close()
+    })
+    $form.Controls.Add($okButton)
+
+    $cancelButton = New-Object System.Windows.Forms.Button
+    $cancelButton.Text = $script:texts["cancel"]
+    $cancelButton.Size = New-Object System.Drawing.Size(120, 35)
+    $cancelButton.Location = New-Object System.Drawing.Point(380, 260)
+    $cancelButton.Font = $font
+    $cancelButton.Add_Click({
+        $form.DialogResult = "Cancel"
+        $form.Close()
+    })
+    $form.Controls.Add($cancelButton)
+
+    $form.AcceptButton = $okButton
+    $form.CancelButton = $cancelButton
+
+    $result = $form.ShowDialog()
+    $form.Dispose()
+
+    return $result -eq "OK"
+}
+
+# Function to save batch configuration to JSON
+function Save-BatchConfig {
+    param([string]$FilePath)
+
+    try {
+        $config = @{
+            batchVersion = "1.0"
+            created = Get-Date -Format "o"
+            jobs = @()
+        }
+
+        foreach ($job in $script:batchJobs) {
+            $jobData = @{
+                jobName = $job.JobName
+                selectedFiles = $job.SelectedFiles
+                channelNames = $job.ChannelNames
+                outputName = $job.OutputName
+                outputPath = $job.OutputPath
+                status = $job.Status
+            }
+            $config.jobs += $jobData
+        }
+
+        $json = $config | ConvertTo-Json -Depth 10
+        [System.IO.File]::WriteAllText($FilePath, $json, [System.Text.Encoding]::UTF8)
+
+        return $true
+    } catch {
+        Write-Host "Error saving batch config: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Function to load batch configuration from JSON
+function Load-BatchConfig {
+    param([string]$FilePath)
+
+    try {
+        $json = Get-Content $FilePath -Raw -Encoding UTF8
+        $config = $json | ConvertFrom-Json
+
+        $script:batchJobs = @()
+
+        foreach ($jobData in $config.jobs) {
+            $job = [BatchJob]::new()
+            $job.JobName = $jobData.jobName
+            $job.SelectedFiles = $jobData.selectedFiles
+            $job.ChannelNames = $jobData.channelNames
+            $job.OutputName = $jobData.outputName
+            $job.OutputPath = $jobData.outputPath
+            $job.Status = "Pending"  # Reset status when loading
+
+            $script:batchJobs += $job
+        }
+
+        return $true
+    } catch {
+        Write-Host "Error loading batch config: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Function to create a new batch job (reuses existing dialogs)
+function New-BatchJob {
+    param([string]$AutoBaseName = "")
+
+    # Save current state
+    $prevFiles = $script:selectedFiles
+    $prevNames = $script:channelNames
+    $prevOutput = $script:outputName
+    $prevPath = $script:outputPath
+
+    # Reset for new job
+    $script:selectedFiles = @()
+    $script:channelNames = @()
+    $script:outputName = ""
+    $script:outputPath = ""
+
+    try {
+        # File selection
+        if (!(Show-FileSelection)) {
+            # Restore previous state
+            $script:selectedFiles = $prevFiles
+            $script:channelNames = $prevNames
+            $script:outputName = $prevOutput
+            $script:outputPath = $prevPath
+            return $null
+        }
+
+        # Auto-numbering if requested
+        if ($AutoBaseName -ne "") {
+            $nextNumber = $script:batchJobs.Count + 1
+            $script:outputName = "{0}_{1:D3}" -f $AutoBaseName, $nextNumber
+            $script:outputPath = if ($prevPath -ne "") { $prevPath } else { [Environment]::GetFolderPath("Desktop") }
+        } else {
+            # Output configuration
+            $outputResult = Show-OutputConfiguration
+            if ($outputResult -ne $true) {
+                # Restore previous state
+                $script:selectedFiles = $prevFiles
+                $script:channelNames = $prevNames
+                $script:outputName = $prevOutput
+                $script:outputPath = $prevPath
+                return $null
+            }
+        }
+
+        # Create job
+        $job = [BatchJob]::new()
+        $job.JobName = $script:outputName
+        $job.SelectedFiles = $script:selectedFiles
+        $job.ChannelNames = $script:channelNames
+        $job.OutputName = $script:outputName
+        $job.OutputPath = $script:outputPath
+        $job.Status = "Pending"
+
+        # Restore previous state
+        $script:selectedFiles = $prevFiles
+        $script:channelNames = $prevNames
+        $script:outputName = $prevOutput
+        $script:outputPath = $prevPath
+
+        return $job
+    } catch {
+        # Restore previous state on error
+        $script:selectedFiles = $prevFiles
+        $script:channelNames = $prevNames
+        $script:outputName = $prevOutput
+        $script:outputPath = $prevPath
+        Write-Host "Error creating batch job: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Function to edit an existing batch job
+function Edit-BatchJob {
+    param([BatchJob]$Job)
+
+    # Save current state
+    $prevFiles = $script:selectedFiles
+    $prevNames = $script:channelNames
+    $prevOutput = $script:outputName
+    $prevPath = $script:outputPath
+
+    # Load job data
+    $script:selectedFiles = $Job.SelectedFiles
+    $script:channelNames = $Job.ChannelNames
+    $script:outputName = $Job.OutputName
+    $script:outputPath = $Job.OutputPath
+
+    try {
+        # File selection
+        if (!(Show-FileSelection)) {
+            # Restore previous state
+            $script:selectedFiles = $prevFiles
+            $script:channelNames = $prevNames
+            $script:outputName = $prevOutput
+            $script:outputPath = $prevPath
+            return $false
+        }
+
+        # Output configuration
+        $outputResult = Show-OutputConfiguration
+        if ($outputResult -ne $true) {
+            # Restore previous state
+            $script:selectedFiles = $prevFiles
+            $script:channelNames = $prevNames
+            $script:outputName = $prevOutput
+            $script:outputPath = $prevPath
+            return $false
+        }
+
+        # Update job
+        $Job.JobName = $script:outputName
+        $Job.SelectedFiles = $script:selectedFiles
+        $Job.ChannelNames = $script:channelNames
+        $Job.OutputName = $script:outputName
+        $Job.OutputPath = $script:outputPath
+        $Job.Status = "Pending"  # Reset status after edit
+
+        # Restore previous state
+        $script:selectedFiles = $prevFiles
+        $script:channelNames = $prevNames
+        $script:outputName = $prevOutput
+        $script:outputPath = $prevPath
+
+        return $true
+    } catch {
+        # Restore previous state on error
+        $script:selectedFiles = $prevFiles
+        $script:channelNames = $prevNames
+        $script:outputName = $prevOutput
+        $script:outputPath = $prevPath
+        Write-Host "Error editing batch job: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Function to remove a batch job
+function Remove-BatchJob {
+    param([int]$Index)
+
+    if ($Index -ge 0 -and $Index -lt $script:batchJobs.Count) {
+        $script:batchJobs = $script:batchJobs[0..($Index-1)] + $script:batchJobs[($Index+1)..($script:batchJobs.Count-1)]
+        return $true
+    }
+    return $false
+}
+
+# Function to show batch job manager
+function Show-BatchJobManager {
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = $script:texts["batchJobManager"]
+    $form.Size = New-Object System.Drawing.Size(900, 700)
+    $form.StartPosition = "CenterScreen"
+
+    $font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
+    $form.Font = $font
+
+    # Label
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = $script:texts["batchJobList"]
+    $label.Size = New-Object System.Drawing.Size(860, 30)
+    $label.Location = New-Object System.Drawing.Point(20, 20)
+    $label.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 10, [System.Drawing.FontStyle]::Bold)
+    $form.Controls.Add($label)
+
+    # ListBox for jobs
+    $jobListBox = New-Object System.Windows.Forms.ListBox
+    $jobListBox.Size = New-Object System.Drawing.Size(860, 250)
+    $jobListBox.Location = New-Object System.Drawing.Point(20, 50)
+    $jobListBox.Font = $font
+    $form.Controls.Add($jobListBox)
+
+    # Details panel
+    $detailsLabel = New-Object System.Windows.Forms.Label
+    $detailsLabel.Text = $script:texts["selectedJob"]
+    $detailsLabel.Size = New-Object System.Drawing.Size(860, 20)
+    $detailsLabel.Location = New-Object System.Drawing.Point(20, 320)
+    $detailsLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
+    $form.Controls.Add($detailsLabel)
+
+    $detailsTextBox = New-Object System.Windows.Forms.TextBox
+    $detailsTextBox.Multiline = $true
+    $detailsTextBox.ScrollBars = "Vertical"
+    $detailsTextBox.ReadOnly = $true
+    $detailsTextBox.Size = New-Object System.Drawing.Size(860, 150)
+    $detailsTextBox.Location = New-Object System.Drawing.Point(20, 345)
+    $detailsTextBox.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $form.Controls.Add($detailsTextBox)
+
+    # Function to refresh job list
+    $RefreshJobList = {
+        $jobListBox.Items.Clear()
+        if ($script:batchJobs.Count -eq 0) {
+            $jobListBox.Items.Add($script:texts["noJobs"])
+        } else {
+            for ($i = 0; $i -lt $script:batchJobs.Count; $i++) {
+                $job = $script:batchJobs[$i]
+                $statusIcon = switch ($job.Status) {
+                    "Pending" { "⏳" }
+                    "Running" { "▶️" }
+                    "Completed" { "✅" }
+                    "Error" { "❌" }
+                    default { "⏳" }
+                }
+                $displayText = "$statusIcon [$($i+1)] $($job.GetDisplayName())"
+                $jobListBox.Items.Add($displayText)
+            }
+        }
+    }
+
+    # Function to update details panel
+    $UpdateDetails = {
+        if ($jobListBox.SelectedIndex -ge 0 -and $jobListBox.SelectedIndex -lt $script:batchJobs.Count) {
+            $job = $script:batchJobs[$jobListBox.SelectedIndex]
+            $details = @"
+$($script:texts['selectedJob']) $($job.JobName)
+
+Fichiers sélectionnés ($($job.SelectedFiles.Count)) :
+$($job.SelectedFiles | ForEach-Object { "  • " + [System.IO.Path]::GetFileName($_) } | Out-String)
+Noms des canaux :
+$($job.ChannelNames | ForEach-Object { if ($_) { "  • $_" } else { "  • (Sans nom)" } } | Out-String)
+Fichier de sortie :
+  $($job.OutputName).tif
+
+Dossier de sortie :
+  $($job.OutputPath)
+
+Statut : $($job.Status)
+"@
+            $detailsTextBox.Text = $details
+        } else {
+            $detailsTextBox.Text = ""
+        }
+    }
+
+    $jobListBox.Add_SelectedIndexChanged($UpdateDetails)
+
+    # Buttons - First row
+    $buttonY = 520
+    $buttonWidth = 150
+    $buttonHeight = 35
+    $buttonSpacing = 15
+
+    # New Job button
+    $newJobButton = New-Object System.Windows.Forms.Button
+    $newJobButton.Text = $script:texts["newJob"]
+    $newJobButton.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+    $newJobButton.Location = New-Object System.Drawing.Point(20, $buttonY)
+    $newJobButton.Font = $font
+    $newJobButton.Add_Click({
+        $newJob = New-BatchJob
+        if ($newJob -ne $null) {
+            $script:batchJobs += $newJob
+            & $RefreshJobList
+        }
+    })
+    $form.Controls.Add($newJobButton)
+
+    # Auto-numbering button
+    $autoNumButton = New-Object System.Windows.Forms.Button
+    $autoNumButton.Text = $script:texts["autoNumbering"]
+    $autoNumButton.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+    $autoNumButton.Location = New-Object System.Drawing.Point((20 + $buttonWidth + $buttonSpacing), $buttonY)
+    $autoNumButton.Font = $font
+    $autoNumButton.Add_Click({
+        # Prompt for base name
+        $inputForm = New-Object System.Windows.Forms.Form
+        $inputForm.Text = $script:texts["autoNumbering"]
+        $inputForm.Size = New-Object System.Drawing.Size(400, 150)
+        $inputForm.StartPosition = "CenterParent"
+
+        $inputLabel = New-Object System.Windows.Forms.Label
+        $inputLabel.Text = $script:texts["baseNamePrompt"]
+        $inputLabel.Location = New-Object System.Drawing.Point(10, 10)
+        $inputLabel.Size = New-Object System.Drawing.Size(380, 20)
+        $inputForm.Controls.Add($inputLabel)
+
+        $inputTextBox = New-Object System.Windows.Forms.TextBox
+        $inputTextBox.Location = New-Object System.Drawing.Point(10, 35)
+        $inputTextBox.Size = New-Object System.Drawing.Size(360, 20)
+        $inputTextBox.Text = "output"
+        $inputForm.Controls.Add($inputTextBox)
+
+        $inputOkButton = New-Object System.Windows.Forms.Button
+        $inputOkButton.Text = $script:texts["continue"]
+        $inputOkButton.Location = New-Object System.Drawing.Point(180, 70)
+        $inputOkButton.Size = New-Object System.Drawing.Size(100, 30)
+        $inputOkButton.DialogResult = "OK"
+        $inputForm.Controls.Add($inputOkButton)
+
+        $inputCancelButton = New-Object System.Windows.Forms.Button
+        $inputCancelButton.Text = $script:texts["cancel"]
+        $inputCancelButton.Location = New-Object System.Drawing.Point(290, 70)
+        $inputCancelButton.Size = New-Object System.Drawing.Size(80, 30)
+        $inputCancelButton.DialogResult = "Cancel"
+        $inputForm.Controls.Add($inputCancelButton)
+
+        $inputForm.AcceptButton = $inputOkButton
+        $inputForm.CancelButton = $inputCancelButton
+
+        if ($inputForm.ShowDialog() -eq "OK") {
+            $baseName = $inputTextBox.Text
+            if (![string]::IsNullOrWhiteSpace($baseName)) {
+                $newJob = New-BatchJob -AutoBaseName $baseName
+                if ($newJob -ne $null) {
+                    $script:batchJobs += $newJob
+                    & $RefreshJobList
+                }
+            }
+        }
+    })
+    $form.Controls.Add($autoNumButton)
+
+    # Edit Job button
+    $editJobButton = New-Object System.Windows.Forms.Button
+    $editJobButton.Text = $script:texts["editJob"]
+    $editJobButton.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+    $editJobButton.Location = New-Object System.Drawing.Point((20 + ($buttonWidth + $buttonSpacing) * 2), $buttonY)
+    $editJobButton.Font = $font
+    $editJobButton.Add_Click({
+        if ($jobListBox.SelectedIndex -ge 0 -and $jobListBox.SelectedIndex -lt $script:batchJobs.Count) {
+            $job = $script:batchJobs[$jobListBox.SelectedIndex]
+            if (Edit-BatchJob -Job $job) {
+                & $RefreshJobList
+                & $UpdateDetails
+            }
+        }
+    })
+    $form.Controls.Add($editJobButton)
+
+    # Delete Job button
+    $deleteJobButton = New-Object System.Windows.Forms.Button
+    $deleteJobButton.Text = $script:texts["deleteJob"]
+    $deleteJobButton.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+    $deleteJobButton.Location = New-Object System.Drawing.Point((20 + ($buttonWidth + $buttonSpacing) * 3), $buttonY)
+    $deleteJobButton.Font = $font
+    $deleteJobButton.Add_Click({
+        if ($jobListBox.SelectedIndex -ge 0 -and $jobListBox.SelectedIndex -lt $script:batchJobs.Count) {
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                $script:texts["deleteJobConfirm"],
+                $script:texts["deleteJob"],
+                "YesNo",
+                "Question"
+            )
+            if ($result -eq "Yes") {
+                Remove-BatchJob -Index $jobListBox.SelectedIndex
+                & $RefreshJobList
+                & $UpdateDetails
+            }
+        }
+    })
+    $form.Controls.Add($deleteJobButton)
+
+    # Buttons - Second row
+    $buttonY2 = $buttonY + $buttonHeight + 10
+
+    # Move Up button
+    $moveUpButton = New-Object System.Windows.Forms.Button
+    $moveUpButton.Text = "▲ " + $script:texts["moveUp"]
+    $moveUpButton.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+    $moveUpButton.Location = New-Object System.Drawing.Point(20, $buttonY2)
+    $moveUpButton.Font = $font
+    $moveUpButton.Add_Click({
+        $idx = $jobListBox.SelectedIndex
+        if ($idx -gt 0) {
+            $temp = $script:batchJobs[$idx]
+            $script:batchJobs[$idx] = $script:batchJobs[$idx - 1]
+            $script:batchJobs[$idx - 1] = $temp
+            & $RefreshJobList
+            $jobListBox.SelectedIndex = $idx - 1
+        }
+    })
+    $form.Controls.Add($moveUpButton)
+
+    # Move Down button
+    $moveDownButton = New-Object System.Windows.Forms.Button
+    $moveDownButton.Text = "▼ " + $script:texts["moveDown"]
+    $moveDownButton.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+    $moveDownButton.Location = New-Object System.Drawing.Point((20 + $buttonWidth + $buttonSpacing), $buttonY2)
+    $moveDownButton.Font = $font
+    $moveDownButton.Add_Click({
+        $idx = $jobListBox.SelectedIndex
+        if ($idx -ge 0 -and $idx -lt ($script:batchJobs.Count - 1)) {
+            $temp = $script:batchJobs[$idx]
+            $script:batchJobs[$idx] = $script:batchJobs[$idx + 1]
+            $script:batchJobs[$idx + 1] = $temp
+            & $RefreshJobList
+            $jobListBox.SelectedIndex = $idx + 1
+        }
+    })
+    $form.Controls.Add($moveDownButton)
+
+    # Save Batch button
+    $saveBatchButton = New-Object System.Windows.Forms.Button
+    $saveBatchButton.Text = $script:texts["saveBatch"]
+    $saveBatchButton.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+    $saveBatchButton.Location = New-Object System.Drawing.Point((20 + ($buttonWidth + $buttonSpacing) * 2), $buttonY2)
+    $saveBatchButton.Font = $font
+    $saveBatchButton.Add_Click({
+        $saveDialog = New-Object System.Windows.Forms.SaveFileDialog
+        $saveDialog.Filter = $script:texts["jsonFilter"]
+        $saveDialog.DefaultExt = "json"
+        $saveDialog.FileName = "batch_jobs.json"
+        if ($saveDialog.ShowDialog() -eq "OK") {
+            if (Save-BatchConfig -FilePath $saveDialog.FileName) {
+                [System.Windows.Forms.MessageBox]::Show(
+                    $script:texts["saveSuccess"],
+                    $script:texts["saveBatch"],
+                    "OK",
+                    "Information"
+                )
+            }
+        }
+    })
+    $form.Controls.Add($saveBatchButton)
+
+    # Load Batch button
+    $loadBatchButton = New-Object System.Windows.Forms.Button
+    $loadBatchButton.Text = $script:texts["loadBatch"]
+    $loadBatchButton.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+    $loadBatchButton.Location = New-Object System.Drawing.Point((20 + ($buttonWidth + $buttonSpacing) * 3), $buttonY2)
+    $loadBatchButton.Font = $font
+    $loadBatchButton.Add_Click({
+        $openDialog = New-Object System.Windows.Forms.OpenFileDialog
+        $openDialog.Filter = $script:texts["jsonFilter"]
+        if ($openDialog.ShowDialog() -eq "OK") {
+            if (Load-BatchConfig -FilePath $openDialog.FileName) {
+                & $RefreshJobList
+                [System.Windows.Forms.MessageBox]::Show(
+                    $script:texts["loadSuccess"],
+                    $script:texts["loadBatch"],
+                    "OK",
+                    "Information"
+                )
+            }
+        }
+    })
+    $form.Controls.Add($loadBatchButton)
+
+    # Bottom buttons - Previous and Process
+    $processButton = New-Object System.Windows.Forms.Button
+    $processButton.Text = $script:texts["processJobs"] + " →"
+    $processButton.Size = New-Object System.Drawing.Size(150, 40)
+    $processButton.Location = New-Object System.Drawing.Point(730, 620)
+    $processButton.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 10, [System.Drawing.FontStyle]::Bold)
+    $processButton.Add_Click({
+        if ($script:batchJobs.Count -eq 0) {
+            [System.Windows.Forms.MessageBox]::Show(
+                $script:texts["noJobs"],
+                $script:texts["error"],
+                "OK",
+                "Warning"
+            )
+        } else {
+            $form.DialogResult = "OK"
+            $form.Close()
+        }
+    })
+    $form.Controls.Add($processButton)
+
+    $previousButton = New-Object System.Windows.Forms.Button
+    $previousButton.Text = "← " + $script:texts["previous"]
+    $previousButton.Size = New-Object System.Drawing.Size(120, 40)
+    $previousButton.Location = New-Object System.Drawing.Point(20, 620)
+    $previousButton.Font = $font
+    $previousButton.Add_Click({
+        $form.DialogResult = "Cancel"
+        $form.Close()
+    })
+    $form.Controls.Add($previousButton)
+
+    # Initialize
+    & $RefreshJobList
+
+    $result = $form.ShowDialog()
+    $form.Dispose()
+
+    return $result -eq "OK"
+}
+
+# Function to generate batch processing report
+function Generate-BatchReport {
+    param([string]$OutputPath)
+
+    $reportFile = Join-Path $OutputPath "batch_report.txt"
+    $reportContent = @()
+
+    $reportContent += "=" * 70
+    $reportContent += "  BATCH PROCESSING REPORT / RAPPORT DE TRAITEMENT BATCH"
+    $reportContent += "=" * 70
+    $reportContent += ""
+    $reportContent += "Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    $reportContent += "Language: $($script:selectedLanguage)"
+    $reportContent += ""
+
+    $completed = @($script:batchJobs | Where-Object { $_.Status -eq "Completed" })
+    $errors = @($script:batchJobs | Where-Object { $_.Status -eq "Error" })
+    $pending = @($script:batchJobs | Where-Object { $_.Status -eq "Pending" })
+
+    $reportContent += "$($script:texts['jobsCompleted']) $($completed.Count) / $($script:batchJobs.Count)"
+    $reportContent += "$($script:texts['jobsErrors']) $($errors.Count)"
+    $reportContent += ""
+
+    if ($script:batchStartTime) {
+        $duration = (Get-Date) - $script:batchStartTime
+        $reportContent += "$($script:texts['totalTime']) $($duration.Hours)h $($duration.Minutes)m $($duration.Seconds)s"
+        $reportContent += ""
+    }
+
+    $reportContent += "-" * 70
+    $reportContent += "  COMPLETED JOBS / JOBS TERMIN\u00c9S"
+    $reportContent += "-" * 70
+    foreach ($job in $completed) {
+        $reportContent += ""
+        $reportContent += "✅ $($job.JobName)"
+        $reportContent += "   Files: $($job.SelectedFiles.Count) $($script:texts['channels'])"
+        $reportContent += "   Output: $($job.OutputPath)\$($job.OutputName).tif"
+        $reportContent += "   Duration: $([math]::Round($job.GetDuration(), 2))s"
+    }
+
+    if ($errors.Count -gt 0) {
+        $reportContent += ""
+        $reportContent += "-" * 70
+        $reportContent += "  ERRORS / ERREURS"
+        $reportContent += "-" * 70
+        foreach ($job in $errors) {
+            $reportContent += ""
+            $reportContent += "❌ $($job.JobName)"
+            $reportContent += "   Error: $($job.ErrorMessage)"
+        }
+    }
+
+    $reportContent += ""
+    $reportContent += "=" * 70
+
+    $reportText = $reportContent -join "`r`n"
+    [System.IO.File]::WriteAllText($reportFile, $reportText, [System.Text.Encoding]::UTF8)
+
+    return $reportFile
+}
+
+# Function to process a single batch job
+function Invoke-BatchJob {
+    param([BatchJob]$Job)
+
+    # Save current global state
+    $prevFiles = $script:selectedFiles
+    $prevNames = $script:channelNames
+    $prevOutput = $script:outputName
+    $prevPath = $script:outputPath
+
+    try {
+        # Load job data into global variables
+        $script:selectedFiles = $Job.SelectedFiles
+        $script:channelNames = $Job.ChannelNames
+        $script:outputName = $Job.OutputName
+        $script:outputPath = $Job.OutputPath
+
+        $Job.StartTime = Get-Date
+        $Job.Status = "Running"
+
+        # Call the existing merge function
+        $success = Invoke-ChannelMerge
+
+        if ($success) {
+            $Job.Status = "Completed"
+            $Job.EndTime = Get-Date
+        } else {
+            $Job.Status = "Error"
+            $Job.ErrorMessage = "Merge failed (unknown error)"
+            $Job.EndTime = Get-Date
+        }
+
+        return $success
+    } catch {
+        $Job.Status = "Error"
+        $Job.ErrorMessage = $_.Exception.Message
+        $Job.EndTime = Get-Date
+        return $false
+    } finally {
+        # Restore previous global state
+        $script:selectedFiles = $prevFiles
+        $script:channelNames = $prevNames
+        $script:outputName = $prevOutput
+        $script:outputPath = $prevPath
+    }
+}
+
+# Function to show batch processing window (split view)
+function Show-BatchProcessing {
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = $script:texts["batchProcessing"]
+    $form.Size = New-Object System.Drawing.Size(1000, 700)
+    $form.StartPosition = "CenterScreen"
+
+    $font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
+    $form.Font = $font
+
+    # Split container
+    $splitContainer = New-Object System.Windows.Forms.SplitContainer
+    $splitContainer.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $splitContainer.SplitterDistance = 400
+    $splitContainer.Orientation = "Vertical"
+    $form.Controls.Add($splitContainer)
+
+    # LEFT PANEL - Job list
+    $leftLabel = New-Object System.Windows.Forms.Label
+    $leftLabel.Text = "$($script:texts['jobList']) ($($script:batchJobs.Count))"
+    $leftLabel.Location = New-Object System.Drawing.Point(10, 10)
+    $leftLabel.Size = New-Object System.Drawing.Size(380, 25)
+    $leftLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 10, [System.Drawing.FontStyle]::Bold)
+    $splitContainer.Panel1.Controls.Add($leftLabel)
+
+    $jobListBox = New-Object System.Windows.Forms.ListBox
+    $jobListBox.Location = New-Object System.Drawing.Point(10, 40)
+    $jobListBox.Size = New-Object System.Drawing.Size(380, 500)
+    $jobListBox.Font = $font
+    $splitContainer.Panel1.Controls.Add($jobListBox)
+
+    # Time labels
+    $timeLabel = New-Object System.Windows.Forms.Label
+    $timeLabel.Location = New-Object System.Drawing.Point(10, 550)
+    $timeLabel.Size = New-Object System.Drawing.Size(380, 60)
+    $timeLabel.Font = $font
+    $splitContainer.Panel1.Controls.Add($timeLabel)
+
+    # Double-click handler to open output folder
+    $jobListBox.Add_DoubleClick({
+        $idx = $jobListBox.SelectedIndex
+        if ($idx -ge 0 -and $idx -lt $script:batchJobs.Count) {
+            $job = $script:batchJobs[$idx]
+            if ($job.Status -eq "Completed") {
+                $outputFile = Join-Path $job.OutputPath "$($job.OutputName).tif"
+                if (Test-Path $outputFile) {
+                    Start-Process "explorer.exe" -ArgumentList "/select,`"$outputFile`""
+                }
+            }
+        }
+    })
+
+    # RIGHT PANEL - Controls and progress
+    $rightLabel = New-Object System.Windows.Forms.Label
+    $rightLabel.Text = $script:texts["controlsAndProgress"]
+    $rightLabel.Location = New-Object System.Drawing.Point(10, 10)
+    $rightLabel.Size = New-Object System.Drawing.Size(560, 25)
+    $rightLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 10, [System.Drawing.FontStyle]::Bold)
+    $splitContainer.Panel2.Controls.Add($rightLabel)
+
+    # Start All button
+    $startButton = New-Object System.Windows.Forms.Button
+    $startButton.Text = $script:texts["startAll"]
+    $startButton.Location = New-Object System.Drawing.Point(10, 50)
+    $startButton.Size = New-Object System.Drawing.Size(120, 35)
+    $startButton.Font = $font
+    $splitContainer.Panel2.Controls.Add($startButton)
+
+    # Stop button
+    $stopButton = New-Object System.Windows.Forms.Button
+    $stopButton.Text = $script:texts["stop"]
+    $stopButton.Location = New-Object System.Drawing.Point(140, 50)
+    $stopButton.Size = New-Object System.Drawing.Size(120, 35)
+    $stopButton.Font = $font
+    $stopButton.Enabled = $false
+    $splitContainer.Panel2.Controls.Add($stopButton)
+
+    # Global progress bar
+    $globalProgressBar = New-Object System.Windows.Forms.ProgressBar
+    $globalProgressBar.Location = New-Object System.Drawing.Point(10, 100)
+    $globalProgressBar.Size = New-Object System.Drawing.Size(560, 30)
+    $globalProgressBar.Minimum = 0
+    $globalProgressBar.Maximum = 100
+    $splitContainer.Panel2.Controls.Add($globalProgressBar)
+
+    $globalProgressLabel = New-Object System.Windows.Forms.Label
+    $globalProgressLabel.Location = New-Object System.Drawing.Point(10, 135)
+    $globalProgressLabel.Size = New-Object System.Drawing.Size(560, 20)
+    $globalProgressLabel.Font = $font
+    $splitContainer.Panel2.Controls.Add($globalProgressLabel)
+
+    # Current job label
+    $currentJobLabel = New-Object System.Windows.Forms.Label
+    $currentJobLabel.Text = $script:texts["currentJob"]
+    $currentJobLabel.Location = New-Object System.Drawing.Point(10, 170)
+    $currentJobLabel.Size = New-Object System.Drawing.Size(560, 20)
+    $currentJobLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
+    $splitContainer.Panel2.Controls.Add($currentJobLabel)
+
+    $currentJobDetails = New-Object System.Windows.Forms.Label
+    $currentJobDetails.Location = New-Object System.Drawing.Point(10, 195)
+    $currentJobDetails.Size = New-Object System.Drawing.Size(560, 60)
+    $currentJobDetails.Font = $font
+    $splitContainer.Panel2.Controls.Add($currentJobDetails)
+
+    # Journal (log)
+    $journalLabel = New-Object System.Windows.Forms.Label
+    $journalLabel.Text = $script:texts["journal"]
+    $journalLabel.Location = New-Object System.Drawing.Point(10, 270)
+    $journalLabel.Size = New-Object System.Drawing.Size(560, 20)
+    $journalLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
+    $splitContainer.Panel2.Controls.Add($journalLabel)
+
+    $journalTextBox = New-Object System.Windows.Forms.TextBox
+    $journalTextBox.Multiline = $true
+    $journalTextBox.ScrollBars = "Vertical"
+    $journalTextBox.ReadOnly = $true
+    $journalTextBox.Location = New-Object System.Drawing.Point(10, 295)
+    $journalTextBox.Size = New-Object System.Drawing.Size(560, 310)
+    $journalTextBox.Font = New-Object System.Drawing.Font("Consolas", 8)
+    $splitContainer.Panel2.Controls.Add($journalTextBox)
+
+    # Function to add log entry
+    $AddLog = {
+        param([string]$Message)
+        $timestamp = Get-Date -Format "HH:mm:ss"
+        $journalTextBox.AppendText("[$timestamp] $Message`r`n")
+    }
+
+    # Function to refresh job list display
+    $RefreshJobList = {
+        $jobListBox.Items.Clear()
+        for ($i = 0; $i -lt $script:batchJobs.Count; $i++) {
+            $job = $script:batchJobs[$i]
+            $statusIcon = switch ($job.Status) {
+                "Pending" { "⏳" }
+                "Running" { "▶️" }
+                "Completed" { "✅" }
+                "Error" { "❌" }
+                default { "⏳" }
+            }
+            $displayText = "$statusIcon [$($i+1)] $($job.JobName)"
+            $jobListBox.Items.Add($displayText)
+        }
+    }
+
+    # Start button click handler
+    $startButton.Add_Click({
+        $startButton.Enabled = $false
+        $stopButton.Enabled = $true
+        $script:batchProcessingCancelled = $false
+        $script:batchStartTime = Get-Date
+
+        & $AddLog "Batch processing started / Traitement batch démarré"
+        & $AddLog "$($script:batchJobs.Count) jobs to process / jobs à traiter"
+
+        # Process jobs sequentially
+        for ($i = 0; $i -lt $script:batchJobs.Count; $i++) {
+            if ($script:batchProcessingCancelled) {
+                & $AddLog "Batch processing cancelled / Traitement batch annulé"
+                break
+            }
+
+            $job = $script:batchJobs[$i]
+            if ($job.Status -ne "Pending") {
+                continue
+            }
+
+            $script:currentBatchJobIndex = $i
+
+            # Update UI
+            & $RefreshJobList
+            $currentJobLabel.Text = "$($script:texts['currentJob']) $($job.JobName)"
+            $currentJobDetails.Text = "• $($job.SelectedFiles.Count) $($script:texts['channels'])`n• $($script:texts['outputName']): $($job.OutputName).tif"
+            $globalProgress = [math]::Round(($i / $script:batchJobs.Count) * 100)
+            $globalProgressBar.Value = $globalProgress
+            $globalProgressLabel.Text = "━━━━━━━━━━ $globalProgress% ($i/$($script:batchJobs.Count))"
+            $form.Refresh()
+            [System.Windows.Forms.Application]::DoEvents()
+
+            & $AddLog "Starting job $($i+1): $($job.JobName) / Démarrage du job $($i+1)"
+
+            # Process the job
+            $success = Invoke-BatchJob -Job $job
+
+            if ($success) {
+                & $AddLog "✅ Job $($i+1) completed / Job $($i+1) terminé"
+            } else {
+                & $AddLog "❌ Job $($i+1) failed: $($job.ErrorMessage) / Job $($i+1) échoué"
+            }
+
+            & $RefreshJobList
+            $form.Refresh()
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+
+        # Final update
+        $globalProgressBar.Value = 100
+        $globalProgressLabel.Text = "━━━━━━━━━━ 100% ($($script:batchJobs.Count)/$($script:batchJobs.Count))"
+        $currentJobLabel.Text = $script:texts["batchComplete"]
+        $currentJobDetails.Text = ""
+
+        $completed = @($script:batchJobs | Where-Object { $_.Status -eq "Completed" })
+        $errors = @($script:batchJobs | Where-Object { $_.Status -eq "Error" })
+
+        $duration = (Get-Date) - $script:batchStartTime
+        $timeLabel.Text = "$($script:texts['timeElapsed']) $($duration.Hours)h $($duration.Minutes)m $($duration.Seconds)s`n" +
+                          "$($script:texts['jobsCompleted']) $($completed.Count)`n" +
+                          "$($script:texts['jobsErrors']) $($errors.Count)"
+
+        & $AddLog ""
+        & $AddLog "Batch processing finished / Traitement batch terminé"
+        & $AddLog "$($script:texts['jobsCompleted']) $($completed.Count)"
+        & $AddLog "$($script:texts['jobsErrors']) $($errors.Count)"
+
+        # Generate report
+        $reportFile = Generate-BatchReport -OutputPath $script:batchJobs[0].OutputPath
+        & $AddLog "Report saved / Rapport sauvegardé: $reportFile"
+
+        $stopButton.Enabled = $false
+
+        # Show completion dialog
+        $completionMessage = "$($script:texts['batchCompleteDesc'])`n`n" +
+                            "$($script:texts['jobsCompleted']) $($completed.Count)`n" +
+                            "$($script:texts['jobsErrors']) $($errors.Count)`n" +
+                            "$($script:texts['totalTime']) $($duration.Hours)h $($duration.Minutes)m $($duration.Seconds)s"
+
+        $result = [System.Windows.Forms.MessageBox]::Show(
+            $completionMessage,
+            $script:texts["batchComplete"],
+            "OK",
+            "Information"
+        )
+    })
+
+    # Stop button click handler
+    $stopButton.Add_Click({
+        $script:batchProcessingCancelled = $true
+        $stopButton.Enabled = $false
+        & $AddLog "Stop requested / Arrêt demandé"
+    })
+
+    # Bottom buttons
+    $finishButton = New-Object System.Windows.Forms.Button
+    $finishButton.Text = $script:texts["finish"]
+    $finishButton.Location = New-Object System.Drawing.Point(10, 615)
+    $finishButton.Size = New-Object System.Drawing.Size(120, 40)
+    $finishButton.Font = $font
+    $finishButton.Add_Click({
+        $form.Close()
+    })
+    $splitContainer.Panel2.Controls.Add($finishButton)
+
+    # Initialize
+    & $RefreshJobList
+    & $AddLog "Batch processing window opened / Fenêtre de traitement batch ouverte"
+    & $AddLog "Click '$($script:texts['startAll'])' to begin / Cliquez sur '$($script:texts['startAll'])' pour commencer"
+
+    $form.ShowDialog()
+    $form.Dispose()
+}
+
 # Main application function
 function Start-TiffChannelMerger {
     try {
@@ -1583,29 +2742,48 @@ function Start-TiffChannelMerger {
             return
         }
 
-        # File selection and output configuration with back navigation support
-        $configComplete = $false
-        while (!$configComplete) {
-            # File selection
-            if (!(Show-FileSelection)) {
-                return
-            }
-
-            # Output configuration
-            $outputResult = Show-OutputConfiguration
-            if ($outputResult -eq $true) {
-                $configComplete = $true
-            } elseif ($outputResult -eq "Retry") {
-                # User clicked Previous, loop back to file selection
-                continue
-            } else {
-                # User cancelled
-                return
-            }
+        # Mode selection (Single or Batch)
+        if (!(Show-ModeSelection)) {
+            return
         }
 
-        # Merge channels
-        Invoke-ChannelMerge
+        # Branch based on selected mode
+        if ($script:batchMode) {
+            # ===== BATCH MODE =====
+            # Show batch job manager
+            if (!(Show-BatchJobManager)) {
+                return
+            }
+
+            # Show batch processing window
+            Show-BatchProcessing
+
+        } else {
+            # ===== SINGLE MODE (Original workflow) =====
+            # File selection and output configuration with back navigation support
+            $configComplete = $false
+            while (!$configComplete) {
+                # File selection
+                if (!(Show-FileSelection)) {
+                    return
+                }
+
+                # Output configuration
+                $outputResult = Show-OutputConfiguration
+                if ($outputResult -eq $true) {
+                    $configComplete = $true
+                } elseif ($outputResult -eq "Retry") {
+                    # User clicked Previous, loop back to file selection
+                    continue
+                } else {
+                    # User cancelled
+                    return
+                }
+            }
+
+            # Merge channels
+            Invoke-ChannelMerge
+        }
 
     } catch {
         $errorMessage = "Application error: " + $_.Exception.Message
