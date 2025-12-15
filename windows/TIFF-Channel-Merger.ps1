@@ -42,6 +42,7 @@ $script:vipsPath = ""
 
 # Batch mode global variables
 $script:batchMode = $false
+$script:inBatchMode = $false  # Indicates if currently processing batch jobs (suppresses MessageBox)
 $script:batchJobs = @()
 $script:currentBatchJobIndex = -1
 $script:batchProcessingPaused = $false
@@ -860,8 +861,16 @@ function Show-FileSelection {
     $removeButton.Add_Click({
         if ($listBox.SelectedIndex -ge 0) {
             $index = $listBox.SelectedIndex
+            # Remove from selectedFiles
             $script:selectedFiles = $script:selectedFiles | Where-Object { $_ -ne $script:selectedFiles[$index] }
-            $script:channelNames = $script:channelNames[0..($index-1)] + $script:channelNames[($index+1)..($script:channelNames.Length-1)]
+            # Remove from channelNames - rebuild array without the element at $index
+            $newChannelNames = @()
+            for ($i = 0; $i -lt $script:channelNames.Count; $i++) {
+                if ($i -ne $index) {
+                    $newChannelNames += $script:channelNames[$i]
+                }
+            }
+            $script:channelNames = $newChannelNames
             $listBox.Items.RemoveAt($index)
             & $UpdateChannelNaming
         }
@@ -991,10 +1000,27 @@ function Show-FileSelection {
         $form.Refresh()
     }
 
-    # Initialize channel naming display if files are already selected
+    # Initialize file list and channel naming display if files are already selected
     if ($script:selectedFiles.Count -gt 0) {
+        # Populate ListBox with existing files
+        foreach ($file in $script:selectedFiles) {
+            $listBox.Items.Add([System.IO.Path]::GetFileName($file)) | Out-Null
+        }
+        # Update channel naming section
         & $UpdateChannelNaming
     }
+
+    # Previous button
+    $previousButton = New-Object System.Windows.Forms.Button
+    $previousButton.Text = "← " + $script:texts["previous"]
+    $previousButton.Size = New-Object System.Drawing.Size(100, 30)
+    $previousButton.Location = New-Object System.Drawing.Point(440, 540)
+    $previousButton.Font = $font
+    $previousButton.Add_Click({
+        $form.DialogResult = "Retry"
+        $form.Close()
+    })
+    $form.Controls.Add($previousButton)
 
     $okButton = New-Object System.Windows.Forms.Button
     $okButton.Text = $script:texts["continue"]
@@ -1028,7 +1054,13 @@ function Show-FileSelection {
     $result = $form.ShowDialog()
     $form.Dispose()
 
-    return $result -eq "OK"
+    if ($result -eq "OK") {
+        return $true
+    } elseif ($result -eq "Retry") {
+        return "Retry"
+    } else {
+        return $false
+    }
 }
 
 # Output configuration dialog with Unicode support
@@ -1147,37 +1179,54 @@ function Show-OutputConfiguration {
 # Ultra-final merge channels function with channel naming support
 function Invoke-ChannelMerge {
     try {
-        # Create progress form
-        $progressForm = New-Object System.Windows.Forms.Form
-        $progressForm.Text = $script:texts["merging"]
-        $progressForm.Size = New-Object System.Drawing.Size(440, 200)
-        $progressForm.StartPosition = "CenterScreen"
-        $progressForm.FormBorderStyle = "FixedDialog"
-        $progressForm.MaximizeBox = $false
-        $progressForm.MinimizeBox = $false
+        # Create progress form only if NOT in batch mode
+        $progressForm = $null
+        $progressBar = $null
+        $progressLabel = $null
 
-        $font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
-        $progressForm.Font = $font
+        if (-not $script:inBatchMode) {
+            $progressForm = New-Object System.Windows.Forms.Form
+            $progressForm.Text = $script:texts["merging"]
+            $progressForm.Size = New-Object System.Drawing.Size(440, 200)
+            $progressForm.StartPosition = "CenterScreen"
+            $progressForm.FormBorderStyle = "FixedDialog"
+            $progressForm.MaximizeBox = $false
+            $progressForm.MinimizeBox = $false
 
-        $progressLabel = New-Object System.Windows.Forms.Label
-        $progressLabel.Text = $script:texts["mergingDesc"]
-        $progressLabel.Size = New-Object System.Drawing.Size(360, 60)
-        $progressLabel.Location = New-Object System.Drawing.Point(20, 20)
-        $progressLabel.Font = $font
-        $progressForm.Controls.Add($progressLabel)
+            $font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
+            $progressForm.Font = $font
 
-        $progressBar = New-Object System.Windows.Forms.ProgressBar
-        $progressBar.Location = New-Object System.Drawing.Point(20, 90)
-        $progressBar.Size = New-Object System.Drawing.Size(360, 23)
-        $progressBar.Style = "Continuous"
-        $progressBar.Minimum = 0
-        $progressBar.Maximum = 100
-        $progressBar.Value = 0
-        $progressForm.Controls.Add($progressBar)
+            $progressLabel = New-Object System.Windows.Forms.Label
+            $progressLabel.Text = $script:texts["mergingDesc"]
+            $progressLabel.Size = New-Object System.Drawing.Size(360, 60)
+            $progressLabel.Location = New-Object System.Drawing.Point(20, 20)
+            $progressLabel.Font = $font
+            $progressForm.Controls.Add($progressLabel)
 
-        $progressForm.Show()
-        $progressForm.Refresh()
-        [System.Windows.Forms.Application]::DoEvents()
+            $progressBar = New-Object System.Windows.Forms.ProgressBar
+            $progressBar.Location = New-Object System.Drawing.Point(20, 90)
+            $progressBar.Size = New-Object System.Drawing.Size(360, 23)
+            $progressBar.Style = "Continuous"
+            $progressBar.Minimum = 0
+            $progressBar.Maximum = 100
+            $progressBar.Value = 0
+            $progressForm.Controls.Add($progressBar)
+
+            $progressForm.Show()
+            $progressForm.Refresh()
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+
+        # Helper function to update progress safely
+        $UpdateProgress = {
+            param([int]$Value, [string]$Text)
+            if ($progressBar) { $progressBar.Value = $Value }
+            if ($progressLabel) { $progressLabel.Text = $Text }
+            if ($progressForm) {
+                $progressForm.Refresh()
+                [System.Windows.Forms.Application]::DoEvents()
+            }
+        }
 
         # Prepare file paths - use .v format for temp to avoid TIFF memory limits
         $tempFile = Join-Path $script:outputPath "$($script:outputName)_temp.v"
@@ -1188,8 +1237,15 @@ function Invoke-ChannelMerge {
         $vipsTempFile = Convert-PathForVips $tempFile
         $vipsFinalFile = Convert-PathForVips $finalFile
 
+        # Create logs directory with timestamp to avoid overwriting between runs
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $logsDir = Join-Path $script:outputPath "logs\$timestamp`_$($script:outputName)"
+        if (-not (Test-Path $logsDir)) {
+            New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+        }
+
         # Create diagnostic log
-        $diagnosticLog = "$env:TEMP\vips_diagnostic.log"
+        $diagnosticLog = Join-Path $logsDir "vips_diagnostic.log"
         $channelInfo = ""
         for ($i = 0; $i -lt $script:selectedFiles.Count; $i++) {
             $channelName = if ($script:channelNames[$i]) { $script:channelNames[$i] } else { "Channel $($i+1)" }
@@ -1221,7 +1277,7 @@ $($script:selectedFiles | ForEach-Object { "  $_ : $(Test-Path $_)" } | Out-Stri
 
         # Create a temporary batch file for VIPS execution
         $batchFile = "$env:TEMP\vips_merge.bat"
-        $logFile = "$env:TEMP\vips_output.log"
+        $logFile = Join-Path $logsDir "vips_output.log"
 
         # Simple and direct approach: bandjoin the files directly
         # Use environment variables for large image processing
@@ -1280,23 +1336,19 @@ $($script:selectedFiles | ForEach-Object { "  $_ : $(Test-Path $_)" } | Out-Stri
         Write-Host "Diagnostic log: $diagnosticLog"
 
         # Update progress: 10% - Preparation complete
-        $progressLabel.Text = "Préparation terminée. Fusion des canaux en cours..."
-        $progressBar.Value = 10
-        $progressForm.Refresh()
-        [System.Windows.Forms.Application]::DoEvents()
+        & $UpdateProgress 10 "Préparation terminée. Fusion des canaux en cours..."
 
         # Execute the batch file
-        $progressLabel.Text = "Fusion des canaux TIFF en cours (étape 1/3)..."
-        $progressBar.Value = 20
-        $progressForm.Refresh()
+        & $UpdateProgress 20 "Fusion des canaux TIFF en cours (étape 1/3)..."
         [System.Windows.Forms.Application]::DoEvents()
 
-        $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$batchFile`"" -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$env:TEMP\vips_error.log"
+        $errorLog = Join-Path $logsDir "vips_error.log"
+        $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$batchFile`"" -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError $errorLog
 
         if ($process.ExitCode -ne 0 -or !(Test-Path $tempFile)) {
             $errorOutput = ""
-            if (Test-Path "$env:TEMP\vips_error.log") {
-                $errorOutput = Get-Content "$env:TEMP\vips_error.log" -Raw
+            if (Test-Path $errorLog) {
+                $errorOutput = Get-Content $errorLog -Raw
             }
             if (Test-Path $logFile) {
                 $commandOutput = Get-Content $logFile -Raw
@@ -1306,10 +1358,7 @@ $($script:selectedFiles | ForEach-Object { "  $_ : $(Test-Path $_)" } | Out-Stri
         }
 
         # Update progress: 50% - Merge complete
-        $progressLabel.Text = "Fusion terminée. Création du fichier TIFF pyramidal (étape 2/3)..."
-        $progressBar.Value = 50
-        $progressForm.Refresh()
-        [System.Windows.Forms.Application]::DoEvents()
+        & $UpdateProgress 50 "Fusion terminée. Création du fichier TIFF pyramidal (étape 2/3)..."
 
         # Create final file with tiffsave
         # Note: Do NOT use --properties here as it writes VIPS metadata to IMAGEDESCRIPTION
@@ -1366,39 +1415,32 @@ if exist "$finalFile" (echo SUCCESS: Final file created) else (echo ERROR: Final
 
         Write-Host "VIPS save command: $saveCommand"
 
-        $progressLabel.Text = "Sauvegarde du fichier TIFF en cours..."
-        $progressBar.Value = 60
-        $progressForm.Refresh()
-        [System.Windows.Forms.Application]::DoEvents()
+        & $UpdateProgress 60 "Sauvegarde du fichier TIFF en cours..."
 
-        $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$saveBatchFile`"" -Wait -PassThru -RedirectStandardOutput "$env:TEMP\vips_save.log" -RedirectStandardError "$env:TEMP\vips_save_error.log"
+        $saveLog = Join-Path $logsDir "vips_save.log"
+        $saveErrorLog = Join-Path $logsDir "vips_save_error.log"
+        $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$saveBatchFile`"" -Wait -PassThru -RedirectStandardOutput $saveLog -RedirectStandardError $saveErrorLog
 
         if ($process.ExitCode -ne 0 -or !(Test-Path $finalFile)) {
             $errorOutput = ""
-            if (Test-Path "$env:TEMP\vips_save_error.log") {
-                $errorOutput = Get-Content "$env:TEMP\vips_save_error.log" -Raw
+            if (Test-Path $saveErrorLog) {
+                $errorOutput = Get-Content $saveErrorLog -Raw
             }
-            if (Test-Path "$env:TEMP\vips_save.log") {
-                $commandOutput = Get-Content "$env:TEMP\vips_save.log" -Raw
+            if (Test-Path $saveLog) {
+                $commandOutput = Get-Content $saveLog -Raw
                 $errorOutput += "`n`nCommand Output:`n$commandOutput"
             }
             throw "VIPS tiffsave failed. Check diagnostic log at: $diagnosticLog`n`nError: $errorOutput"
         }
 
         # Update progress: 85% - TIFF save complete
-        $progressLabel.Text = "Fichier TIFF créé. Ajout des métadonnées (étape 3/3)..."
-        $progressBar.Value = 85
-        $progressForm.Refresh()
-        [System.Windows.Forms.Application]::DoEvents()
+        & $UpdateProgress 85 "Fichier TIFF créé. Ajout des métadonnées (étape 3/3)..."
 
         # Post-process to add OME-TIFF metadata if channel names are provided
         if ($hasChannelNames) {
             Write-Host "=== OME-TIFF POST-PROCESSING ==="
             Write-Host "Adding OME-TIFF metadata with channel names..."
-            $progressLabel.Text = "Ajout des métadonnées OME-XML pour QuPath..."
-            $progressBar.Value = 90
-            $progressForm.Refresh()
-            [System.Windows.Forms.Application]::DoEvents()
+            & $UpdateProgress 90 "Ajout des métadonnées OME-XML pour QuPath..."
 
             $omeChannelNames = @()
             for ($i = 0; $i -lt $script:selectedFiles.Count; $i++) {
@@ -1447,11 +1489,12 @@ if exist "$finalFile" (echo SUCCESS: Final file created) else (echo ERROR: Final
                 }
             }
 
-            # Generate OME-XML with actual dimensions
-            $omeXml = New-OMEXMLMetadata -ChannelNames $omeChannelNames -SizeC $omeChannelNames.Count -SizeX $actualWidth -SizeY $actualHeight
-            $omeXmlFile = Join-Path $script:outputPath "$($script:outputName).ome.xml"
-            Write-UTF8BOM -FilePath $omeXmlFile -Content $omeXml
-            Write-Host "OME-XML metadata saved to: $omeXmlFile"
+            # DISABLED: Generate OME-XML with actual dimensions
+            # Uncomment to enable .ome.xml file creation for future use
+            # $omeXml = New-OMEXMLMetadata -ChannelNames $omeChannelNames -SizeC $omeChannelNames.Count -SizeX $actualWidth -SizeY $actualHeight
+            # $omeXmlFile = Join-Path $script:outputPath "$($script:outputName).ome.xml"
+            # Write-UTF8BOM -FilePath $omeXmlFile -Content $omeXml
+            # Write-Host "OME-XML metadata saved to: $omeXmlFile"
 
             # Generate QuPath Groovy script for channel setup
             $groovyScript = @"
@@ -1570,7 +1613,6 @@ fireHierarchyUpdate()
             Write-Host ""
             Write-Host "📁 Files created:"
             Write-Host "  • $($script:outputName).tif (multi-channel pyramidal TIFF - $('{0:N2}' -f ((Get-Item $finalFile).Length / 1GB)) GB)"
-            Write-Host "  • $($script:outputName).ome.xml (OME metadata sidecar)"
             Write-Host "  • $($script:outputName)_channels.txt (Channel names list)"
             Write-Host "  • QuPath_Import_$($script:outputName).groovy (QuPath import script)"
             Write-Host ""
@@ -1589,37 +1631,13 @@ fireHierarchyUpdate()
             Write-Host "METHOD 2 - Manual:"
             Write-Host "  1. Open $($script:outputName).tif in QuPath"
             Write-Host "  2. Manually rename channels in Brightness/Contrast panel"
-            Write-Host ""
-            Write-Host "📝 Note: OME-XML embedding is disabled for large files to prevent corruption"
-            Write-Host "   The .ome.xml sidecar file contains all channel metadata"
         }
 
-        # Copy log files to output directory for troubleshooting
+        # Log files are saved in dedicated directory
         Write-Host ""
-        Write-Host "Copying log files to output directory..."
-        $logDestination = $script:outputPath
+        Write-Host "Log files saved in: $logsDir"
 
-        $logFiles = @(
-            @{ Source = $diagnosticLog; Name = "vips_diagnostic.log" }
-            @{ Source = "$env:TEMP\vips_output.log"; Name = "vips_output.log" }
-            @{ Source = "$env:TEMP\vips_error.log"; Name = "vips_error.log" }
-            @{ Source = "$env:TEMP\vips_save.log"; Name = "vips_save.log" }
-            @{ Source = "$env:TEMP\vips_save_error.log"; Name = "vips_save_error.log" }
-        )
-
-        foreach ($logInfo in $logFiles) {
-            if (Test-Path $logInfo.Source) {
-                $destPath = Join-Path $logDestination $logInfo.Name
-                try {
-                    Copy-Item $logInfo.Source -Destination $destPath -Force
-                    Write-Host "  ✓ Copied $($logInfo.Name)"
-                } catch {
-                    Write-Host "  ⚠ Could not copy $($logInfo.Name): $($_.Exception.Message)"
-                }
-            }
-        }
-
-        # Clean up temporary files (but keep logs in output directory)
+        # Clean up temporary files (logs are kept in dedicated directory)
         if (Test-Path $tempFile) {
             Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
         }
@@ -1627,21 +1645,11 @@ fireHierarchyUpdate()
         Remove-Item $batchFile -ErrorAction SilentlyContinue
         Remove-Item $saveBatchFile -ErrorAction SilentlyContinue
 
-        # Remove temp logs (already copied to output directory)
-        Remove-Item "$env:TEMP\vips_output.log" -ErrorAction SilentlyContinue
-        Remove-Item "$env:TEMP\vips_error.log" -ErrorAction SilentlyContinue
-        Remove-Item "$env:TEMP\vips_save.log" -ErrorAction SilentlyContinue
-        Remove-Item "$env:TEMP\vips_save_error.log" -ErrorAction SilentlyContinue
-        Remove-Item $diagnosticLog -ErrorAction SilentlyContinue
-
         # Update progress: 100% - Complete!
-        $progressLabel.Text = "Traitement terminé avec succès !"
-        $progressBar.Value = 100
-        $progressForm.Refresh()
-        [System.Windows.Forms.Application]::DoEvents()
+        & $UpdateProgress 100 "Traitement terminé avec succès !"
         Start-Sleep -Milliseconds 500  # Brief pause to show completion
 
-        $progressForm.Close()
+        if ($progressForm) { $progressForm.Close() }
 
         # Success message
         $fileSize = if (Test-Path $finalFile) { "{0:N2}" -f ((Get-Item $finalFile).Length / 1GB) } else { "?" }
@@ -1654,7 +1662,6 @@ fireHierarchyUpdate()
                 $successMessage += $channelInfo + "`n`n✅ TIFF multi-canaux créé avec succès"
                 $successMessage += "`n`nFichiers créés :"
                 $successMessage += "`n  • $($script:outputName).tif (image pyramidale)"
-                $successMessage += "`n  • $($script:outputName).ome.xml (métadonnées OME)"
                 $successMessage += "`n  • $($script:outputName)_channels.txt (noms des canaux)"
                 $successMessage += "`n  • QuPath_Import_$($script:outputName).groovy"
                 $successMessage += "`n`n📖 Pour utiliser dans QuPath :"
@@ -1664,7 +1671,6 @@ fireHierarchyUpdate()
                 $successMessage += $channelInfo + "`n`n✅ Multi-channel TIFF created successfully"
                 $successMessage += "`n`nFiles created:"
                 $successMessage += "`n  • $($script:outputName).tif (pyramidal image)"
-                $successMessage += "`n  • $($script:outputName).ome.xml (OME metadata)"
                 $successMessage += "`n  • $($script:outputName)_channels.txt (channel names)"
                 $successMessage += "`n  • QuPath_Import_$($script:outputName).groovy"
                 $successMessage += "`n`n📖 To use in QuPath:"
@@ -1672,10 +1678,13 @@ fireHierarchyUpdate()
                 $successMessage += "`n  2. Run the .groovy script to import channel names"
             }
         }
-        $result = [System.Windows.Forms.MessageBox]::Show($successMessage, $script:texts["success"], "OKCancel", "Information")
+        # Only show MessageBox if NOT in batch mode
+        if (-not $script:inBatchMode) {
+            $result = [System.Windows.Forms.MessageBox]::Show($successMessage, $script:texts["success"], "OKCancel", "Information")
 
-        if ($result -eq "OK") {
-            Start-Process "explorer.exe" -ArgumentList "/select,`"$finalFile`""
+            if ($result -eq "OK") {
+                Start-Process "explorer.exe" -ArgumentList "/select,`"$finalFile`""
+            }
         }
 
         return $true
@@ -1683,7 +1692,12 @@ fireHierarchyUpdate()
     } catch {
         if ($progressForm) { $progressForm.Close() }
         $errorMessage = "Merge failed: " + $_.Exception.Message
-        [System.Windows.Forms.MessageBox]::Show($errorMessage, $script:texts["error"], "OK", "Error")
+
+        # Only show MessageBox if NOT in batch mode
+        if (-not $script:inBatchMode) {
+            [System.Windows.Forms.MessageBox]::Show($errorMessage, $script:texts["error"], "OK", "Error")
+        }
+
         return $false
     }
 }
@@ -1735,7 +1749,12 @@ function Show-ModeSelection {
     $singleDesc.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
     $singlePanel.Controls.Add($singleDesc)
 
-    $singlePanel.Add_Click({ $singleRadio.Checked = $true })
+    $singlePanel.Add_Click({
+        $singleRadio.Checked = $true
+    })
+    $singleDesc.Add_Click({
+        $singleRadio.Checked = $true
+    })
     $form.Controls.Add($singlePanel)
 
     # Batch mode button (styled as a panel)
@@ -1760,8 +1779,26 @@ function Show-ModeSelection {
     $batchDesc.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
     $batchPanel.Controls.Add($batchDesc)
 
-    $batchPanel.Add_Click({ $batchRadio.Checked = $true })
+    $batchPanel.Add_Click({
+        $batchRadio.Checked = $true
+    })
+    $batchDesc.Add_Click({
+        $batchRadio.Checked = $true
+    })
     $form.Controls.Add($batchPanel)
+
+    # Add event handlers to radio buttons to ensure mutual exclusivity
+    $singleRadio.Add_CheckedChanged({
+        if ($singleRadio.Checked) {
+            $batchRadio.Checked = $false
+        }
+    })
+
+    $batchRadio.Add_CheckedChanged({
+        if ($batchRadio.Checked) {
+            $singleRadio.Checked = $false
+        }
+    })
 
     # Buttons
     $okButton = New-Object System.Windows.Forms.Button
@@ -1952,8 +1989,9 @@ function Edit-BatchJob {
 
     try {
         # File selection
-        if (!(Show-FileSelection)) {
-            # Restore previous state
+        $fileSelectionResult = Show-FileSelection
+        if ($fileSelectionResult -ne $true) {
+            # User cancelled or clicked Previous - restore previous state
             $script:selectedFiles = $prevFiles
             $script:channelNames = $prevNames
             $script:outputName = $prevOutput
@@ -1964,7 +2002,7 @@ function Edit-BatchJob {
         # Output configuration
         $outputResult = Show-OutputConfiguration
         if ($outputResult -ne $true) {
-            # Restore previous state
+            # User cancelled or clicked Previous - restore previous state
             $script:selectedFiles = $prevFiles
             $script:channelNames = $prevNames
             $script:outputName = $prevOutput
@@ -2003,7 +2041,14 @@ function Remove-BatchJob {
     param([int]$Index)
 
     if ($Index -ge 0 -and $Index -lt $script:batchJobs.Count) {
-        $script:batchJobs = $script:batchJobs[0..($Index-1)] + $script:batchJobs[($Index+1)..($script:batchJobs.Count-1)]
+        # Create a new array without the element at $Index
+        $newJobs = @()
+        for ($i = 0; $i -lt $script:batchJobs.Count; $i++) {
+            if ($i -ne $Index) {
+                $newJobs += $script:batchJobs[$i]
+            }
+        }
+        $script:batchJobs = $newJobs
         return $true
     }
     return $false
@@ -2115,7 +2160,7 @@ Statut : $($job.Status)
         $newJob = New-BatchJob
         if ($newJob -ne $null) {
             $script:batchJobs += $newJob
-            & $RefreshJobList
+            $null = & $RefreshJobList
         }
     })
     $form.Controls.Add($newJobButton)
@@ -2168,7 +2213,7 @@ Statut : $($job.Status)
                 $newJob = New-BatchJob -AutoBaseName $baseName
                 if ($newJob -ne $null) {
                     $script:batchJobs += $newJob
-                    & $RefreshJobList
+                    $null = & $RefreshJobList
                 }
             }
         }
@@ -2185,8 +2230,8 @@ Statut : $($job.Status)
         if ($jobListBox.SelectedIndex -ge 0 -and $jobListBox.SelectedIndex -lt $script:batchJobs.Count) {
             $job = $script:batchJobs[$jobListBox.SelectedIndex]
             if (Edit-BatchJob -Job $job) {
-                & $RefreshJobList
-                & $UpdateDetails
+                $null = & $RefreshJobList
+                $null = & $UpdateDetails
             }
         }
     })
@@ -2208,8 +2253,8 @@ Statut : $($job.Status)
             )
             if ($result -eq "Yes") {
                 Remove-BatchJob -Index $jobListBox.SelectedIndex
-                & $RefreshJobList
-                & $UpdateDetails
+                $null = & $RefreshJobList
+                $null = & $UpdateDetails
             }
         }
     })
@@ -2230,7 +2275,7 @@ Statut : $($job.Status)
             $temp = $script:batchJobs[$idx]
             $script:batchJobs[$idx] = $script:batchJobs[$idx - 1]
             $script:batchJobs[$idx - 1] = $temp
-            & $RefreshJobList
+            $null = & $RefreshJobList
             $jobListBox.SelectedIndex = $idx - 1
         }
     })
@@ -2248,7 +2293,7 @@ Statut : $($job.Status)
             $temp = $script:batchJobs[$idx]
             $script:batchJobs[$idx] = $script:batchJobs[$idx + 1]
             $script:batchJobs[$idx + 1] = $temp
-            & $RefreshJobList
+            $null = & $RefreshJobList
             $jobListBox.SelectedIndex = $idx + 1
         }
     })
@@ -2289,7 +2334,7 @@ Statut : $($job.Status)
         $openDialog.Filter = $script:texts["jsonFilter"]
         if ($openDialog.ShowDialog() -eq "OK") {
             if (Load-BatchConfig -FilePath $openDialog.FileName) {
-                & $RefreshJobList
+                $null = & $RefreshJobList
                 [System.Windows.Forms.MessageBox]::Show(
                     $script:texts["loadSuccess"],
                     $script:texts["loadBatch"],
@@ -2334,7 +2379,7 @@ Statut : $($job.Status)
     $form.Controls.Add($previousButton)
 
     # Initialize
-    & $RefreshJobList
+    $null = & $RefreshJobList
 
     $result = $form.ShowDialog()
     $form.Dispose()
@@ -2460,33 +2505,44 @@ function Show-BatchProcessing {
     $font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
     $form.Font = $font
 
-    # Split container
+    # Split container - HORIZONTAL: Panel1 = TOP (jobs), Panel2 = BOTTOM (controls)
     $splitContainer = New-Object System.Windows.Forms.SplitContainer
     $splitContainer.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $splitContainer.SplitterDistance = 400
-    $splitContainer.Orientation = "Vertical"
+    $splitContainer.Orientation = "Horizontal"
+    $splitContainer.SplitterDistance = 250
+    $splitContainer.SplitterWidth = 8
+    $splitContainer.Panel1.BackColor = [System.Drawing.Color]::White
+    $splitContainer.Panel2.BackColor = [System.Drawing.Color]::White
+
+    # Make splitter visible
+    $splitContainer.Add_Paint({
+        param($sender, $e)
+        $rect = $sender.SplitterRectangle
+        $e.Graphics.FillRectangle([System.Drawing.Brushes]::LightGray, $rect)
+    })
+
     $form.Controls.Add($splitContainer)
 
-    # LEFT PANEL - Job list
-    $leftLabel = New-Object System.Windows.Forms.Label
-    $leftLabel.Text = "$($script:texts['jobList']) ($($script:batchJobs.Count))"
-    $leftLabel.Location = New-Object System.Drawing.Point(10, 10)
-    $leftLabel.Size = New-Object System.Drawing.Size(380, 25)
-    $leftLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 10, [System.Drawing.FontStyle]::Bold)
-    $splitContainer.Panel1.Controls.Add($leftLabel)
+    # PANEL 1 (TOP) - Job list
+    $splitContainer.Panel1.Padding = New-Object System.Windows.Forms.Padding(10)
 
-    $jobListBox = New-Object System.Windows.Forms.ListBox
-    $jobListBox.Location = New-Object System.Drawing.Point(10, 40)
-    $jobListBox.Size = New-Object System.Drawing.Size(380, 500)
-    $jobListBox.Font = $font
-    $splitContainer.Panel1.Controls.Add($jobListBox)
+    # Spacer between title and list
+    $topSpacer = New-Object System.Windows.Forms.Panel
+    $topSpacer.Dock = "Top"
+    $topSpacer.Height = 2
+    $splitContainer.Panel1.Controls.Add($topSpacer)
 
-    # Time labels
+    # Time label at bottom of top panel
     $timeLabel = New-Object System.Windows.Forms.Label
-    $timeLabel.Location = New-Object System.Drawing.Point(10, 550)
-    $timeLabel.Size = New-Object System.Drawing.Size(380, 60)
+    $timeLabel.Dock = "Bottom"
+    $timeLabel.Height = 60
     $timeLabel.Font = $font
     $splitContainer.Panel1.Controls.Add($timeLabel)
+
+    $jobListBox = New-Object System.Windows.Forms.ListBox
+    $jobListBox.Dock = "Fill"
+    $jobListBox.Font = $font
+    $splitContainer.Panel1.Controls.Add($jobListBox)
 
     # Double-click handler to open output folder
     $jobListBox.Add_DoubleClick({
@@ -2502,73 +2558,85 @@ function Show-BatchProcessing {
         }
     })
 
-    # RIGHT PANEL - Controls and progress
-    $rightLabel = New-Object System.Windows.Forms.Label
-    $rightLabel.Text = $script:texts["controlsAndProgress"]
-    $rightLabel.Location = New-Object System.Drawing.Point(10, 10)
-    $rightLabel.Size = New-Object System.Drawing.Size(560, 25)
-    $rightLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 10, [System.Drawing.FontStyle]::Bold)
-    $splitContainer.Panel2.Controls.Add($rightLabel)
+    # PANEL 2 (BOTTOM) - Controls and progress
+    $splitContainer.Panel2.Padding = New-Object System.Windows.Forms.Padding(10)
 
-    # Start All button
+    # Title
+    $bottomLabel = New-Object System.Windows.Forms.Label
+    $bottomLabel.Text = $script:texts["controlsAndProgress"]
+    $bottomLabel.Dock = "Top"
+    $bottomLabel.Height = 30
+    $bottomLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $bottomLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 11, [System.Drawing.FontStyle]::Bold)
+    $splitContainer.Panel2.Controls.Add($bottomLabel)
+
+    # Buttons
+    $buttonPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttonPanel.Dock = "Top"
+    $buttonPanel.Height = 40
+    $buttonPanel.FlowDirection = "LeftToRight"
+    $buttonPanel.WrapContents = $false
+    $buttonPanel.Padding = New-Object System.Windows.Forms.Padding(0, 5, 0, 5)
+
     $startButton = New-Object System.Windows.Forms.Button
     $startButton.Text = $script:texts["startAll"]
-    $startButton.Location = New-Object System.Drawing.Point(10, 50)
-    $startButton.Size = New-Object System.Drawing.Size(120, 35)
+    $startButton.Size = New-Object System.Drawing.Size(130, 30)
     $startButton.Font = $font
-    $splitContainer.Panel2.Controls.Add($startButton)
+    $buttonPanel.Controls.Add($startButton)
 
-    # Stop button
     $stopButton = New-Object System.Windows.Forms.Button
     $stopButton.Text = $script:texts["stop"]
-    $stopButton.Location = New-Object System.Drawing.Point(140, 50)
-    $stopButton.Size = New-Object System.Drawing.Size(120, 35)
+    $stopButton.Size = New-Object System.Drawing.Size(130, 30)
     $stopButton.Font = $font
     $stopButton.Enabled = $false
-    $splitContainer.Panel2.Controls.Add($stopButton)
+    $buttonPanel.Controls.Add($stopButton)
 
-    # Global progress bar
+    $splitContainer.Panel2.Controls.Add($buttonPanel)
+
+    # Global progress
+    $globalProgressLabel = New-Object System.Windows.Forms.Label
+    $globalProgressLabel.Dock = "Top"
+    $globalProgressLabel.Height = 20
+    $globalProgressLabel.Font = $font
+    $globalProgressLabel.Padding = New-Object System.Windows.Forms.Padding(0, 5, 0, 0)
+    $splitContainer.Panel2.Controls.Add($globalProgressLabel)
+
     $globalProgressBar = New-Object System.Windows.Forms.ProgressBar
-    $globalProgressBar.Location = New-Object System.Drawing.Point(10, 100)
-    $globalProgressBar.Size = New-Object System.Drawing.Size(560, 30)
+    $globalProgressBar.Dock = "Top"
+    $globalProgressBar.Height = 25
     $globalProgressBar.Minimum = 0
     $globalProgressBar.Maximum = 100
     $splitContainer.Panel2.Controls.Add($globalProgressBar)
 
-    $globalProgressLabel = New-Object System.Windows.Forms.Label
-    $globalProgressLabel.Location = New-Object System.Drawing.Point(10, 135)
-    $globalProgressLabel.Size = New-Object System.Drawing.Size(560, 20)
-    $globalProgressLabel.Font = $font
-    $splitContainer.Panel2.Controls.Add($globalProgressLabel)
-
-    # Current job label
+    # Current job
     $currentJobLabel = New-Object System.Windows.Forms.Label
     $currentJobLabel.Text = $script:texts["currentJob"]
-    $currentJobLabel.Location = New-Object System.Drawing.Point(10, 170)
-    $currentJobLabel.Size = New-Object System.Drawing.Size(560, 20)
+    $currentJobLabel.Dock = "Top"
+    $currentJobLabel.Height = 25
     $currentJobLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
+    $currentJobLabel.Padding = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
     $splitContainer.Panel2.Controls.Add($currentJobLabel)
 
     $currentJobDetails = New-Object System.Windows.Forms.Label
-    $currentJobDetails.Location = New-Object System.Drawing.Point(10, 195)
-    $currentJobDetails.Size = New-Object System.Drawing.Size(560, 60)
+    $currentJobDetails.Dock = "Top"
+    $currentJobDetails.Height = 40
     $currentJobDetails.Font = $font
     $splitContainer.Panel2.Controls.Add($currentJobDetails)
 
-    # Journal (log)
+    # Journal
     $journalLabel = New-Object System.Windows.Forms.Label
     $journalLabel.Text = $script:texts["journal"]
-    $journalLabel.Location = New-Object System.Drawing.Point(10, 270)
-    $journalLabel.Size = New-Object System.Drawing.Size(560, 20)
+    $journalLabel.Dock = "Top"
+    $journalLabel.Height = 25
     $journalLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
+    $journalLabel.Padding = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
     $splitContainer.Panel2.Controls.Add($journalLabel)
 
     $journalTextBox = New-Object System.Windows.Forms.TextBox
     $journalTextBox.Multiline = $true
     $journalTextBox.ScrollBars = "Vertical"
     $journalTextBox.ReadOnly = $true
-    $journalTextBox.Location = New-Object System.Drawing.Point(10, 295)
-    $journalTextBox.Size = New-Object System.Drawing.Size(560, 310)
+    $journalTextBox.Dock = "Fill"
     $journalTextBox.Font = New-Object System.Drawing.Font("Consolas", 8)
     $splitContainer.Panel2.Controls.Add($journalTextBox)
 
@@ -2601,6 +2669,7 @@ function Show-BatchProcessing {
         $startButton.Enabled = $false
         $stopButton.Enabled = $true
         $script:batchProcessingCancelled = $false
+        $script:inBatchMode = $true  # Activate batch mode
         $script:batchStartTime = Get-Date
 
         & $AddLog "Batch processing started / Traitement batch démarré"
@@ -2608,6 +2677,8 @@ function Show-BatchProcessing {
 
         # Process jobs sequentially
         for ($i = 0; $i -lt $script:batchJobs.Count; $i++) {
+            # Check cancellation flag
+            [System.Windows.Forms.Application]::DoEvents()
             if ($script:batchProcessingCancelled) {
                 & $AddLog "Batch processing cancelled / Traitement batch annulé"
                 break
@@ -2620,9 +2691,10 @@ function Show-BatchProcessing {
 
             $script:currentBatchJobIndex = $i
 
-            # Update UI
+            # Update UI and memory usage
+            $memoryMB = [math]::Round((Get-Process -Id $PID).WorkingSet64 / 1MB, 2)
             & $RefreshJobList
-            $currentJobLabel.Text = "$($script:texts['currentJob']) $($job.JobName)"
+            $currentJobLabel.Text = "$($script:texts['currentJob']) $($job.JobName) | Memory: $memoryMB MB"
             $currentJobDetails.Text = "• $($job.SelectedFiles.Count) $($script:texts['channels'])`n• $($script:texts['outputName']): $($job.OutputName).tif"
             $globalProgress = [math]::Round(($i / $script:batchJobs.Count) * 100)
             $globalProgressBar.Value = $globalProgress
@@ -2645,6 +2717,8 @@ function Show-BatchProcessing {
             $form.Refresh()
             [System.Windows.Forms.Application]::DoEvents()
         }
+
+        $script:inBatchMode = $false  # Deactivate batch mode
 
         # Final update
         $globalProgressBar.Value = 100
@@ -2742,29 +2816,39 @@ function Start-TiffChannelMerger {
             return
         }
 
-        # Mode selection (Single or Batch)
-        if (!(Show-ModeSelection)) {
-            return
-        }
-
-        # Branch based on selected mode
-        if ($script:batchMode) {
-            # ===== BATCH MODE =====
-            # Show batch job manager
-            if (!(Show-BatchJobManager)) {
+        # Mode selection loop (allow going back from batch job manager)
+        $modeSelectionComplete = $false
+        while (!$modeSelectionComplete) {
+            # Mode selection (Single or Batch)
+            if (!(Show-ModeSelection)) {
                 return
             }
 
-            # Show batch processing window
-            Show-BatchProcessing
+            # Branch based on selected mode
+            if ($script:batchMode) {
+                # ===== BATCH MODE =====
+                # Show batch job manager
+                if (Show-BatchJobManager) {
+                    # User clicked "Process Jobs" - continue to processing
+                    Show-BatchProcessing
+                    $modeSelectionComplete = $true
+                }
+                # If Show-BatchJobManager returns false (user clicked "Previous"), loop back to mode selection
 
-        } else {
+            } else {
             # ===== SINGLE MODE (Original workflow) =====
             # File selection and output configuration with back navigation support
             $configComplete = $false
             while (!$configComplete) {
                 # File selection
-                if (!(Show-FileSelection)) {
+                $fileSelectionResult = Show-FileSelection
+                if ($fileSelectionResult -eq $true) {
+                    # Continue to output configuration
+                } elseif ($fileSelectionResult -eq "Retry") {
+                    # User clicked Previous, go back to mode selection
+                    break  # Exit the configComplete loop and loop back to mode selection
+                } else {
+                    # User cancelled
                     return
                 }
 
@@ -2772,6 +2856,7 @@ function Start-TiffChannelMerger {
                 $outputResult = Show-OutputConfiguration
                 if ($outputResult -eq $true) {
                     $configComplete = $true
+                    $modeSelectionComplete = $true  # Configuration complete, exit mode selection loop
                 } elseif ($outputResult -eq "Retry") {
                     # User clicked Previous, loop back to file selection
                     continue
@@ -2781,8 +2866,11 @@ function Start-TiffChannelMerger {
                 }
             }
 
-            # Merge channels
-            Invoke-ChannelMerge
+            # Merge channels (only if configuration was completed)
+            if ($configComplete) {
+                Invoke-ChannelMerge
+            }
+            }
         }
 
     } catch {
