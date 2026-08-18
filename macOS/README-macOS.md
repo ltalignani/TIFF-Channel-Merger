@@ -106,6 +106,25 @@ When channel names are provided, the application creates **4 files**:
 
 See `QuPath_Import_Instructions.md` for detailed usage instructions.
 
+## ⌨️ CLI Usage
+
+For scripting and automation, `tiff_channel_merger_cli.py` provides the same merge and batch functionality as the GUI, without any dialogs.
+
+```bash
+# Single merge (channel order = --files order)
+python3 tiff_channel_merger_cli.py merge \
+    --files ch1_dapi.tif ch2_gfp.tif ch3_rfp.tif \
+    --names DAPI GFP RFP \
+    --output-name merged_channels \
+    --output-dir ~/Desktop
+
+# Batch mode: process every job in a batch_jobs.json file
+# (same JSON schema as the Windows GUI's Save/Load batch list, so files are interchangeable)
+python3 tiff_channel_merger_cli.py batch --config batch_jobs.json
+```
+
+Run `python3 tiff_channel_merger_cli.py --help`, `merge --help`, or `batch --help` for the full option list (pyramidal TIFF is on by default, use `--no-pyramid` to disable it; `--lang fr` switches console messages to French). Shared logic lives in `tiff_merger_core.py`; the GUI does not use it yet.
+
 ## 🛠️ Troubleshooting
 
 ### VIPS Not Found
@@ -200,6 +219,8 @@ The output files are optimized for QuPath with OME-XML metadata:
 ```
 macOS/
 ├── tiff_channel_merger_gui.py          # Main Python/Tkinter application
+├── tiff_channel_merger_cli.py          # Command-line interface (scripting/automation)
+├── tiff_merger_core.py                 # Shared merge/OME logic used by the CLI
 ├── tiff-channel-merger.sh              # Shell launcher script
 ├── create_app_bundle.sh                # App bundle builder
 ├── TIFF Channel Merger.app/            # macOS application bundle
