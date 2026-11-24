@@ -274,7 +274,6 @@ macOS/
 ├── QuPath_Import_Instructions.md       # QuPath channel-name import guide
 ├── build/                              # Build files (git-ignored)
 ├── dist/                               # Built app and .dmg (git-ignored)
-├── OLD/                                 # Legacy v3.0 AppleScript implementation
 └── README-macOS.md                     # This file
 ```
 

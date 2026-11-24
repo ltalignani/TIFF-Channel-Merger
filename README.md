@@ -74,13 +74,11 @@ TIFF-Channel-Merger/
 │   ├── LAUNCH.txt                      # Launch guide (all methods, incl. CLI)
 │   ├── build_dmg.sh                    # Builds the standalone app + .dmg
 │   ├── QuPath_Import_Instructions.md   # QuPath integration guide
-│   ├── OLD/                            # Legacy v3.0 AppleScript implementation
 │   └── README-macOS.md                 # macOS-specific docs
 ├── windows/                            # Windows Application
 │   ├── TIFF-Channel-Merger.ps1         # PowerShell GUI app
 │   ├── TIFF-Channel-Merger.bat         # Windows launcher
 │   ├── QuPath_Import_Instructions.md   # QuPath integration guide
-│   ├── OLD/                            # Legacy PowerShell versions
 │   └── README-Windows.md               # Windows-specific docs
 ├── vips_debug/                         # VIPS diagnostic scripts (Windows)
 ├── CLAUDE.md                           # Development documentation
