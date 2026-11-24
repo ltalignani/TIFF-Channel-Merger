@@ -38,7 +38,7 @@ This creates `dist/TIFF Channel Merger.app` and `dist/TIFF-Channel-Merger-<versi
 - runs the app's self-test (`--self-test`: merges three generated channels into a pyramidal TIFF) with no Homebrew in the PATH, and fails if any library is loaded from Homebrew or MacPorts;
 - packages the `.dmg`.
 
-The app is built for the processor of the Mac that builds it: a build made on Apple Silicon does not run on Intel Macs. To change the version number, edit `VERSION` in `build_dmg.sh`. `create_app_bundle.sh` now just calls `build_dmg.sh`.
+The app is built for the processor of the Mac that builds it: a build made on Apple Silicon does not run on Intel Macs. To change the version number, edit `VERSION` in `build_dmg.sh`.
 
 ### Run from the source code
 
@@ -50,7 +50,6 @@ python3 -c "import tkinter; print(tkinter.TkVersion)"   # must print 8.6 or high
 python3 tiff_channel_merger_gui.py
 ```
 
-`LAUNCH-HERE.command` and `tiff-channel-merger.sh` run the same command using the `python3` found in your PATH.
 
 ### Command line (scripting/automation)
 
@@ -198,7 +197,7 @@ If macOS blocks the application:
 ### Permission Issues
 If you get permission errors:
 ```bash
-chmod +x tiff-channel-merger.sh build_dmg.sh
+chmod +x build_dmg.sh
 ```
 
 ### Rebuilding the Application
@@ -266,11 +265,7 @@ macOS/
 ├── tiff_channel_merger_gui.py          # Main Python/Tkinter application
 ├── tiff_channel_merger_cli.py          # Command-line interface (scripting/automation)
 ├── tiff_merger_core.py                 # Shared merge/OME logic used by the GUI and CLI
-├── LAUNCH-HERE.command                 # Double-clickable launcher (source, needs Python with Tk 8.6+)
-├── tiff-channel-merger.sh              # Shell launcher script
-├── LAUNCH.txt                          # Launch guide (all methods, incl. CLI)
 ├── build_dmg.sh                        # Builds the standalone app + .dmg (PyInstaller)
-├── create_app_bundle.sh                # Old name, now calls build_dmg.sh
 ├── QuPath_Import_Instructions.md       # QuPath channel-name import guide
 ├── build/                              # Build files (git-ignored)
 ├── dist/                               # Built app and .dmg (git-ignored)

@@ -69,15 +69,14 @@ TIFF-Channel-Merger/
 │   ├── tiff_channel_merger_gui.py      # Main Python/Tkinter GUI
 │   ├── tiff_channel_merger_cli.py      # Command-line interface (scripting/automation)
 │   ├── tiff_merger_core.py             # Shared merge/OME logic used by the GUI and CLI
-│   ├── LAUNCH-HERE.command             # Double-clickable launcher (runs from source)
-│   ├── tiff-channel-merger.sh          # Shell launcher script
-│   ├── LAUNCH.txt                      # Launch guide (all methods, incl. CLI)
 │   ├── build_dmg.sh                    # Builds the standalone app + .dmg
 │   ├── QuPath_Import_Instructions.md   # QuPath integration guide
 │   └── README-macOS.md                 # macOS-specific docs
 ├── windows/                            # Windows Application
 │   ├── TIFF-Channel-Merger.ps1         # PowerShell GUI app
 │   ├── TIFF-Channel-Merger.bat         # Windows launcher
+│   ├── create_icon.ps1                 # Generates the app icons (.png, .ico)
+│   ├── JPEG-XR_Problem_Solution.md     # Guide + .bat tools for JPEG-XR compressed TIFFs
 │   ├── QuPath_Import_Instructions.md   # QuPath integration guide
 │   └── README-Windows.md               # Windows-specific docs
 ├── vips_debug/                         # VIPS diagnostic scripts (Windows)
