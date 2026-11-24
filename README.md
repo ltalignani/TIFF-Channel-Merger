@@ -13,9 +13,10 @@ Cross-platform application for merging multiple TIFF files (fluorescence channel
 
 ### macOS
 
-1. Open `TIFF-Channel-Merger-<version>.dmg` and drag **TIFF Channel Merger** onto **Applications**.
-2. Start the app from Launchpad, Spotlight or the Applications folder. On first launch, right-click the app and choose **Open**, because it is not signed by Apple.
-3. Nothing else to install: Python, the interface and VIPS are embedded in the app.
+1. Download `TIFF-Channel-Merger-<version>.dmg` from the [latest release](https://github.com/ltalignani/TIFF-Channel-Merger/releases/latest) (under **Assets**). The `.dmg` is not stored in the repository itself.
+2. Open it and drag **TIFF Channel Merger** onto **Applications**.
+3. Start the app from Launchpad, Spotlight or the Applications folder. On first launch, right-click the app and choose **Open**, because it is not signed by Apple.
+4. Nothing else to install: Python, the interface and VIPS are embedded in the app.
 
 To build the `.dmg` from the source code:
 
