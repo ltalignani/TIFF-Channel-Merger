@@ -3,12 +3,15 @@
 """
 Shared core logic for TIFF Channel Merger (macOS).
 
-Used by the CLI (tiff_channel_merger_cli.py). The Tkinter GUI
-(tiff_channel_merger_gui.py) only uses the batch helpers (BatchJob, batch
-config load/save, batch report); it still keeps its own merge pipeline
-(bandjoin to a temp TIFF + OME-XML sidecar) and may be migrated here later.
+Used by the CLI (tiff_channel_merger_cli.py) and the Tkinter GUI
+(tiff_channel_merger_gui.py):
+- the GUI uses the batch helpers (BatchJob, batch config load/save, batch
+  report) and, when pyvips is available (always in the .dmg app),
+  merge_channels_pyvips() with the embedded libvips. Without pyvips it falls
+  back to its own `vips` command pipeline. It also writes an OME-XML sidecar.
+- the CLI uses merge_channels() / process_merge_job() with the `vips` command.
 
-Mirrors the current behavior of the Windows version (windows/TIFF-Channel-Merger.ps1):
+merge_channels() mirrors the Windows version (windows/TIFF-Channel-Merger.ps1):
 - bandjoin merges directly into a .v (VIPS native) intermediate file to avoid
   VIPS' 50MB cumulative memory limit on TIFF reload, then tiffsave produces the
   final pyramidal TIFF from the .v file.
@@ -129,6 +132,96 @@ def merge_channels(vips_path: str, files: List[str], output_tif: str, pyramid: b
         raise MergeError(f"tiffsave failed: {tiffsave_result.stderr.strip()}")
 
     return bandjoin_result.stdout, tiffsave_result.stdout
+
+
+# ---------------------------------------------------------------------------
+# In-process merge with pyvips (libvips embedded in the .dmg app)
+# ---------------------------------------------------------------------------
+
+_pyvips = None
+
+
+def _load_pyvips():
+    """Import pyvips once. libvips reads its settings from the environment when
+    it starts, so they must be set before the first import."""
+    global _pyvips
+    if _pyvips is None:
+        os.environ.setdefault("VIPS_DISC_THRESHOLD", "100m")  # decode big images to disk, not RAM
+        os.environ.setdefault("VIPS_CONCURRENCY", "2")
+        os.environ.setdefault("LIBTIFF_WARNINGS", "no")
+        import pyvips
+        pyvips.cache_set_max(0)  # no operation cache: batch jobs must not pile up memory
+        _pyvips = pyvips
+    return _pyvips
+
+
+def pyvips_available() -> bool:
+    """True if pyvips and a working libvips can be loaded (always true in the .dmg app)."""
+    try:
+        _load_pyvips()
+        return True
+    except Exception:  # ImportError, or OSError/cffi error when libvips is missing
+        return False
+
+
+def pyvips_description() -> str:
+    pyvips = _load_pyvips()
+    return f"pyvips {pyvips.__version__} / libvips {pyvips.version(0)}.{pyvips.version(1)}.{pyvips.version(2)}"
+
+
+def merge_channels_pyvips(files: List[str], output_tif: str, pyramid: bool = True) -> str:
+    """Merge single-channel TIFFs into output_tif with the embedded libvips.
+
+    Same output as the vips command line (LZW, BigTIFF, 256x256 tiles and a
+    pyramid when requested). Inputs are read sequentially and streamed straight
+    into tiffsave, so no intermediate file is needed and memory stays bounded.
+    A partial output file is removed on failure. Returns a short log text;
+    raises MergeError on failure.
+    """
+    pyvips = _load_pyvips()
+    try:
+        images = [pyvips.Image.new_from_file(f, access="sequential", unlimited=True) for f in files]
+        merged = images[0].bandjoin(images[1:])
+        options = {"compression": "lzw", "bigtiff": True}
+        if pyramid:
+            options.update(tile=True, tile_width=256, tile_height=256, pyramid=True)
+        merged.tiffsave(output_tif, **options)
+    except pyvips.Error as e:
+        if os.path.exists(output_tif):
+            os.remove(output_tif)
+        raise MergeError(f"libvips: {str(e).strip()}") from e
+
+    lines = [pyvips_description(), f"Output: {output_tif}",
+             f"Size: {merged.width} x {merged.height}, {merged.bands} bands, {merged.format}",
+             f"tiffsave options: {options}"]
+    lines += [f"Input {i + 1}: {img.width} x {img.height}, {img.bands} band(s), {img.format} - {f}"
+              for i, (f, img) in enumerate(zip(files, images))]
+    return "\n".join(lines) + "\n"
+
+
+def self_test() -> int:
+    """Check that the embedded libvips can merge and write a pyramidal TIFF.
+    Used by build_dmg.sh on the built app (`TIFF Channel Merger --self-test`)."""
+    import tempfile
+    try:
+        pyvips = _load_pyvips()
+        with tempfile.TemporaryDirectory() as tmp:
+            inputs = []
+            for i in range(3):
+                path = os.path.join(tmp, f"ch{i}.tif")
+                (pyvips.Image.black(600, 400) + 40 * (i + 1)).cast("uchar").tiffsave(path)
+                inputs.append(path)
+            out = os.path.join(tmp, "merged.tif")
+            merge_channels_pyvips(inputs, out, pyramid=True)
+            check = pyvips.Image.new_from_file(out)
+            ok = check.bands == 3 and check.get("n-pages") > 1
+            print(f"{pyvips_description()} - merged {check.width}x{check.height}, "
+                  f"{check.bands} bands, {check.get('n-pages')} pyramid levels")
+        print("SELF-TEST OK" if ok else "SELF-TEST FAILED: unexpected output")
+        return 0 if ok else 1
+    except Exception as e:
+        print(f"SELF-TEST FAILED: {e}")
+        return 1
 
 
 def default_channel_names(files: List[str], channel_names: Optional[List[str]]) -> List[str]:

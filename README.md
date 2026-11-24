@@ -6,7 +6,7 @@ Cross-platform application for merging multiple TIFF files (fluorescence channel
 
 | Platform | Application | Language Support | Advanced Features | VIPS Installation |
 |----------|-------------|------------------|-------------------|-------------------|
-| **macOS** | Python/Tkinter GUI + CLI | 🇫🇷 🇬🇧 | ✅ Channel ordering<br>✅ Channel naming<br>✅ OME-XML<br>✅ Batch mode (GUI + CLI) | Homebrew, offered automatically if missing |
+| **macOS** | Python/Tkinter GUI + CLI | 🇫🇷 🇬🇧 | ✅ Channel ordering<br>✅ Channel naming<br>✅ OME-XML<br>✅ Batch mode (GUI + CLI) | Embedded in the `.dmg` app (CLI: Homebrew) |
 | **Windows** | PowerShell GUI | 🇫🇷 🇬🇧 | ✅ Channel ordering<br>✅ Channel naming<br>✅ OME-XML | Automatic Download |
 
 ## Quick Start
@@ -15,7 +15,7 @@ Cross-platform application for merging multiple TIFF files (fluorescence channel
 
 1. Open `TIFF-Channel-Merger-<version>.dmg` and drag **TIFF Channel Merger** onto **Applications**.
 2. Start the app from Launchpad, Spotlight or the Applications folder. On first launch, right-click the app and choose **Open**, because it is not signed by Apple.
-3. If VIPS is missing, the app offers to install it with Homebrew.
+3. Nothing else to install: Python, the interface and VIPS are embedded in the app.
 
 To build the `.dmg` from the source code:
 
@@ -52,7 +52,7 @@ TIFF-Channel-Merger.bat
 - **Visual file ordering**: See and rearrange channel order before merging
 - **Channel labeling**: Name each channel for easier QuPath workflow
 - **Progress tracking**: Visual feedback during processing
-- **Auto-installation**: VIPS dependency management (Windows: automatic download; macOS: one-click install via Homebrew when missing)
+- **Auto-installation**: VIPS dependency management (Windows: automatic download; macOS: embedded in the `.dmg` app, Homebrew for the CLI)
 
 ### Technical Features
 
@@ -91,6 +91,8 @@ TIFF-Channel-Merger/
 
 ### macOS Prerequisites
 
+The `.dmg` app needs nothing else. For the CLI or for running from source without `pyvips`:
+
 ```bash
 # Install Homebrew (if not present)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -98,8 +100,7 @@ TIFF-Channel-Merger/
 # Install VIPS
 brew install vips
 
-# The .dmg app embeds Python and Tk: nothing else to install.
-# To run or build from source, you need Python 3.9+ with Tk 8.6+
+# To run the GUI or build the .dmg from source, you need Python 3.9+ with Tk 8.6+
 # (Apple's /usr/bin/python3 has Tk 8.5 and shows an empty window).
 ```
 
@@ -178,7 +179,7 @@ vips tiffsave merged.tif output.tif \
 
 **macOS:**
 
-- **VIPS not found**: The app/CLI offers to install it automatically via Homebrew; if Homebrew isn't installed, install VIPS manually with `brew install vips`
+- **VIPS not found** (CLI or running from source): the CLI and GUI offer to install it via Homebrew; if Homebrew isn't installed, install it, then run `brew install vips`. The `.dmg` app embeds VIPS
 - **App won't open**: Right-click → Open to bypass security
 - **Permission errors**: Check file/folder permissions
 
