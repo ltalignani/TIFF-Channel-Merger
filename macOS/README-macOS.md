@@ -14,8 +14,8 @@ This is the macOS version of the TIFF Channel Merger application. It provides a 
 
 ### Install the app (users)
 
-1. Open `TIFF-Channel-Merger-4.1.dmg`.
-2. Drag **TIFF Channel Merger** onto the **Applications** folder.
+1. Download `TIFF-Channel-Merger-<version>.dmg` from the [latest release](https://github.com/ltalignani/TIFF-Channel-Merger/releases/latest) (under **Assets**). The `.dmg` is not stored in the repository itself: it is built by `build_dmg.sh` (see below) and attached to each release.
+2. Open the `.dmg` and drag **TIFF Channel Merger** onto the **Applications** folder.
 3. Start it from Launchpad, Spotlight or the Applications folder. To keep it in the Dock, right-click its Dock icon while it runs and choose **Options → Keep in Dock**.
 
 **First launch:** the app is not signed by Apple, so macOS may say it cannot verify the developer. Right-click the app in Applications, choose **Open**, then confirm. On recent macOS versions, you may instead have to go to **System Settings → Privacy & Security** and click **Open Anyway**. You only need to do this once.
@@ -39,6 +39,12 @@ This creates `dist/TIFF Channel Merger.app` and `dist/TIFF-Channel-Merger-<versi
 - packages the `.dmg`.
 
 The app is built for the processor of the Mac that builds it: a build made on Apple Silicon does not run on Intel Macs. To change the version number, edit `VERSION` in `build_dmg.sh`.
+
+To publish a new version, attach the `.dmg` to a GitHub release (it is not committed: `dist/` is git-ignored):
+
+```bash
+gh release create v<version> "dist/TIFF-Channel-Merger-<version>.dmg" --target master --title "TIFF Channel Merger <version> (macOS)"
+```
 
 ### Run from the source code
 
