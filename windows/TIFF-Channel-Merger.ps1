@@ -1362,7 +1362,7 @@ $($script:selectedFiles | ForEach-Object { "  $_ : $(Test-Path $_)" } | Out-Stri
 
         # Create final file with tiffsave
         # Note: Do NOT use --properties here as it writes VIPS metadata to IMAGEDESCRIPTION
-        # We will inject OME-XML later with Python script
+        # (OME-XML is not embedded: channel names go to _channels.txt + Groovy script)
         # Always create pyramidal TIFF with LZW compression
         $saveOptions = @("--compression=lzw", "--bigtiff", "--tile", "--tile-width=256", "--tile-height=256", "--pyramid")
         $hasChannelNames = $script:channelNames | Where-Object { $_ -ne "" }
@@ -1569,45 +1569,11 @@ fireHierarchyUpdate()
             [System.IO.File]::WriteAllText($groovyScriptPath, $groovyScriptUnix, $utf8NoBom)
             Write-Host "QuPath script generated: $groovyScriptPath"
 
-            # DISABLED: OME-XML injection causes file corruption for large pyramidal TIFFs
-            # The Python libraries (tifffile, Pillow) load the entire 7+ GB file in memory
-            # and destroy the pyramidal structure, resulting in empty/corrupted files.
-            # Only tifftools works correctly but requires: pip install tifftools
-
-            Write-Host ""
-            Write-Host "=== OME-XML INJECTION SKIPPED (Prevents file corruption) ==="
-            Write-Host "⚠️ For large pyramidal TIFFs (>1GB), Python injection can corrupt the file"
-            Write-Host "Using OME-XML sidecar file instead (.ome.xml)"
-            Write-Host ""
-            Write-Host "💡 To enable safe OME-XML embedding:"
-            Write-Host "   pip install tifftools"
-            Write-Host "   (tifftools is the ONLY library that preserves large pyramidal TIFFs)"
-            Write-Host ""
-
+            # OME-XML is not embedded in the TIFF: Python-based injection (tifffile,
+            # Pillow) loads the whole file in memory and corrupts large pyramidal
+            # TIFFs. Channel names are delivered through _channels.txt and the
+            # QuPath Groovy script instead.
             $omeInjected = $false
-
-            # Optional: Check if tifftools is available and ONLY use it
-            # Uncomment this section if you want to try injection with tifftools only:
-            <#
-            $pythonScript = Join-Path $PSScriptRoot "inject_ome_xml.py"
-            try {
-                $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-                if ($pythonCmd) {
-                    # Check if tifftools is installed
-                    $tifftoolsCheck = & $pythonCmd.Source -c "import tifftools; print('OK')" 2>$null
-                    if ($tifftoolsCheck -eq "OK") {
-                        Write-Host "tifftools detected - attempting safe OME-XML injection..."
-                        $env:PYTHONIOENCODING = "utf-8"
-                        $env:PYTHONUTF8 = "1"
-                        $result = & $pythonCmd.Source $pythonScript $finalFile $omeXmlFile 2>&1
-                        Write-Host $result
-                        if ($LASTEXITCODE -eq 0) {
-                            $omeInjected = $true
-                        }
-                    }
-                }
-            } catch { }
-            #>
 
             # Display results
             Write-Host ""

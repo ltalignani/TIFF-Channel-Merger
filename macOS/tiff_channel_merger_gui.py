@@ -19,8 +19,10 @@ import subprocess
 import os
 from pathlib import Path
 import shutil
+import sys
 import threading
 import queue
+from types import SimpleNamespace
 from datetime import datetime
 
 import tiff_merger_core as core
@@ -37,6 +39,7 @@ class TIFFChannelMerger:
         self.selected_files = []
         self.channel_names = []
         self.vips_path = ""
+        self.use_pyvips = False  # True when libvips is embedded (pyvips), e.g. in the .dmg app
 
         # "single": normal merge-and-quit flow.
         # "batch_add" / "batch_edit": file selection / output config screens are
@@ -307,7 +310,13 @@ class TIFFChannelMerger:
             }
 
     def check_vips(self):
-        """Check if VIPS is installed (Homebrew/MacPorts paths first, then PATH)"""
+        """Find VIPS: the embedded libvips (pyvips) first, then the `vips`
+        command (Homebrew/MacPorts paths, then PATH)"""
+        if core.pyvips_available():
+            self.use_pyvips = True
+            self.vips_path = core.pyvips_description()
+            return True
+
         vips_path = core.find_vips()
         if vips_path:
             self.vips_path = vips_path
@@ -721,43 +730,12 @@ class TIFFChannelMerger:
         final_file = output_path + ".tif"
 
         try:
-
-            # Set environment variables for large image processing
-            env = os.environ.copy()
-            env['VIPS_DISC_THRESHOLD'] = '2g'  # Use disk when image exceeds 2GB
-            env['VIPS_CONCURRENCY'] = '2'      # Allow some parallelism (2 threads)
-            env['IM_CONCURRENCY'] = '2'        # ImageMagick compatibility
-            env['VIPS_NOVECTOR'] = '1'         # Disable vector operations (more stable)
-            env['LIBTIFF_WARNINGS'] = 'no'     # Suppress libtiff warnings
-
-            # DIRECT APPROACH: Use bandjoin directly with increased memory limits
-            # Much faster than converting each file first
-
-            # Collect all logs for diagnostic purposes
-            all_logs = []
-
-            # Build file list for VIPS
-            file_list = " ".join([f'"{f}"' for f in files])
-
-            # Step 1: Merge channels directly with bandjoin
-            merge_cmd = f'{self.vips_path} bandjoin "{file_list}" "{temp_file}"'
-            merge_result = subprocess.run(merge_cmd, shell=True, capture_output=True, text=True, env=env)
-            all_logs.append(('merge', 0, merge_result))
-
-            if merge_result.returncode != 0:
-                raise Exception(f"Merge failed: {merge_result.stderr}")
-
-            # Step 3: Create final file with disk-based processing
-            if pyramid:
-                save_cmd = f'{self.vips_path} tiffsave "{temp_file}" "{final_file}" --compression=lzw --tile --tile-width=256 --tile-height=256 --pyramid --bigtiff --vips-disc-threshold=0'
+            if self.use_pyvips:
+                # Embedded libvips (the .dmg app): no external VIPS needed
+                log = core.merge_channels_pyvips(files, final_file, pyramid)
+                all_logs = [("pyvips", 0, SimpleNamespace(stdout=log, stderr=""))]
             else:
-                save_cmd = f'{self.vips_path} tiffsave "{temp_file}" "{final_file}" --compression=lzw --bigtiff --vips-disc-threshold=0'
-
-            save_result = subprocess.run(save_cmd, shell=True, capture_output=True, text=True, env=env)
-            all_logs.append(('save', 0, save_result))
-
-            if save_result.returncode != 0:
-                raise Exception(f"Save failed: {save_result.stderr}")
+                all_logs = self.merge_with_vips_cli(files, temp_file, final_file, pyramid)
 
             # Create OME-XML if channel names are provided
             has_channel_names = any(name.strip() for name in channel_names)
@@ -773,6 +751,48 @@ class TIFFChannelMerger:
             # Clean up the intermediate file, on success and on failure
             if os.path.exists(temp_file):
                 os.remove(temp_file)
+
+    def merge_with_vips_cli(self, files, temp_file, final_file, pyramid):
+        """Merge with the `vips` command line (Homebrew), used when running from
+        source without pyvips. Returns the step logs; raises on failure."""
+        # Set environment variables for large image processing
+        env = os.environ.copy()
+        env['VIPS_DISC_THRESHOLD'] = '2g'  # Use disk when image exceeds 2GB
+        env['VIPS_CONCURRENCY'] = '2'      # Allow some parallelism (2 threads)
+        env['IM_CONCURRENCY'] = '2'        # ImageMagick compatibility
+        env['VIPS_NOVECTOR'] = '1'         # Disable vector operations (more stable)
+        env['LIBTIFF_WARNINGS'] = 'no'     # Suppress libtiff warnings
+
+        # DIRECT APPROACH: Use bandjoin directly with increased memory limits
+        # Much faster than converting each file first
+
+        # Collect all logs for diagnostic purposes
+        all_logs = []
+
+        # Build file list for VIPS
+        file_list = " ".join([f'"{f}"' for f in files])
+
+        # Step 1: Merge channels directly with bandjoin
+        merge_cmd = f'{self.vips_path} bandjoin "{file_list}" "{temp_file}"'
+        merge_result = subprocess.run(merge_cmd, shell=True, capture_output=True, text=True, env=env)
+        all_logs.append(('merge', 0, merge_result))
+
+        if merge_result.returncode != 0:
+            raise Exception(f"Merge failed: {merge_result.stderr}")
+
+        # Step 3: Create final file with disk-based processing
+        if pyramid:
+            save_cmd = f'{self.vips_path} tiffsave "{temp_file}" "{final_file}" --compression=lzw --tile --tile-width=256 --tile-height=256 --pyramid --bigtiff --vips-disc-threshold=0'
+        else:
+            save_cmd = f'{self.vips_path} tiffsave "{temp_file}" "{final_file}" --compression=lzw --bigtiff --vips-disc-threshold=0'
+
+        save_result = subprocess.run(save_cmd, shell=True, capture_output=True, text=True, env=env)
+        all_logs.append(('save', 0, save_result))
+
+        if save_result.returncode != 0:
+            raise Exception(f"Save failed: {save_result.stderr}")
+
+        return all_logs
 
     def copy_logs_to_output(self, output_location, all_logs, files, channel_names):
         """Copy VIPS logs to output directory for troubleshooting"""
@@ -804,7 +824,7 @@ class TIFFChannelMerger:
             diagnostic_path = os.path.join(output_location, "vips_diagnostic.log")
             with open(diagnostic_path, 'w') as f:
                 f.write("=== VIPS Diagnostic Log ===\n")
-                f.write(f"VIPS Path: {self.vips_path}\n")
+                f.write(f"VIPS: {self.vips_path}\n")
                 f.write(f"Output Location: {output_location}\n\n")
                 f.write("Selected Files:\n")
                 for i, file_path in enumerate(files):
@@ -1304,6 +1324,10 @@ println("{msg_verify}")
 
 
 def main():
+    # Headless check of the embedded libvips, run by build_dmg.sh on the built app
+    if "--self-test" in sys.argv:
+        sys.exit(core.self_test())
+
     root = tk.Tk()
     app = TIFFChannelMerger(root)
     root.mainloop()

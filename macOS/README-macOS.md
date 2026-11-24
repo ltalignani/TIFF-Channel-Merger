@@ -20,7 +20,7 @@ This is the macOS version of the TIFF Channel Merger application. It provides a 
 
 **First launch:** the app is not signed by Apple, so macOS may say it cannot verify the developer. Right-click the app in Applications, choose **Open**, then confirm. On recent macOS versions, you may instead have to go to **System Settings → Privacy & Security** and click **Open Anyway**. You only need to do this once.
 
-**VIPS:** the app includes Python and its interface, but not VIPS, the image library that does the merging. If VIPS is missing, the app offers to install it with Homebrew. If Homebrew is not installed either, install it from [brew.sh](https://brew.sh), run `brew install vips` in the Terminal, then restart the app.
+**Nothing else to install:** the app includes Python, its interface, and libvips, the image library that does the merging (through `pyvips`). Homebrew and VIPS are not needed.
 
 ### Build the .dmg (developers)
 
@@ -29,18 +29,20 @@ cd macOS/
 ./build_dmg.sh
 ```
 
-This creates `dist/TIFF Channel Merger.app` and `dist/TIFF-Channel-Merger-<version>.dmg` (about 12 MB). The script:
+This creates `dist/TIFF Channel Merger.app` and `dist/TIFF-Channel-Merger-<version>.dmg` (about 22 MB). The script:
 
 - picks a Python whose Tkinter uses Tk 8.6 or newer (Apple's `/usr/bin/python3` has Tk 8.5, which shows an empty window on recent macOS). It looks for a Python installed with [uv](https://docs.astral.sh/uv/) (`uv python install 3.13`), from python.org, or with Homebrew (`brew install python-tk@3.13`). Force a choice with `PYTHON=/path/to/python3 ./build_dmg.sh`;
-- installs PyInstaller in `build/venv` (nothing is installed system-wide);
+- installs PyInstaller, `pyvips` and `pyvips-binary` (a self-contained libvips, version pinned in the script) in `build/venv`. Nothing is installed system-wide. The script makes sure `pyvips` does not compile itself against a libvips installed with Homebrew;
 - builds the app icon from `windows/tiff-merger-icon.png`;
-- builds the app, signs it ad hoc (no Apple notarization), and packages the `.dmg`.
+- builds the app and signs it ad hoc (no Apple notarization);
+- runs the app's self-test (`--self-test`: merges three generated channels into a pyramidal TIFF) with no Homebrew in the PATH, and fails if any library is loaded from Homebrew or MacPorts;
+- packages the `.dmg`.
 
-The app is built for the processor of the Mac that builds it: a build made on Apple Silicon does not run on Intel Macs. To change the version number, edit `VERSION` in `build_dmg.sh`. `create_app_bundle.sh` now just calls `build_dmg.sh`.
+The app is built for the processor of the Mac that builds it: a build made on Apple Silicon does not run on Intel Macs. To change the version number, edit `VERSION` in `build_dmg.sh`.
 
 ### Run from the source code
 
-The GUI needs a Python whose Tkinter uses Tk 8.6 or newer. Apple's `/usr/bin/python3` shows an empty window.
+The GUI needs a Python whose Tkinter uses Tk 8.6 or newer. Apple's `/usr/bin/python3` shows an empty window. If `pyvips` is installed in that Python, the GUI uses it; otherwise it uses the `vips` command from Homebrew.
 
 ```bash
 cd macOS/
@@ -48,11 +50,10 @@ python3 -c "import tkinter; print(tkinter.TkVersion)"   # must print 8.6 or high
 python3 tiff_channel_merger_gui.py
 ```
 
-`LAUNCH-HERE.command` and `tiff-channel-merger.sh` run the same command using the `python3` found in your PATH.
 
 ### Command line (scripting/automation)
 
-The CLI has no interface, so it works with any Python 3.9+, including `/usr/bin/python3`:
+The CLI has no interface, so it works with any Python 3.9+, including `/usr/bin/python3`. It uses the `vips` command from Homebrew:
 
 ```bash
 python3 tiff_channel_merger_cli.py merge --files ch1.tif ch2.tif --output-name merged --output-dir ~/Desktop
@@ -65,12 +66,12 @@ See [CLI Usage](#️-cli-usage) below for the full option list.
 
 - **Empty window**: the app is running with a Tk that is too old. Use the app from the `.dmg`, or run the source code with a Python that has Tk 8.6+ (see above).
 - **`No module named '_tkinter'`** or **`Library not loaded: ...libtk8.6.dylib`**: this Python has no working Tkinter. Use the `.dmg` app, or install a Python as listed in "Build the .dmg".
-- **"VIPS is not installed"** even though `vips` works in the Terminal: VIPS must be in `/opt/homebrew/bin`, `/usr/local/bin` or `/opt/local/bin`. An app opened from the Finder does not see the Terminal's PATH.
+- **"VIPS is not installed" when running from source**: install `pyvips` in that Python, or install the `vips` command with `brew install vips`. The `vips` command must be in `/opt/homebrew/bin`, `/usr/local/bin` or `/opt/local/bin`.
 
 ## 📋 System Requirements
 
 - **Operating System**: a recent macOS on the same processor type (Apple Silicon or Intel) as the Mac that built the `.dmg`
-- **VIPS**: installed with Homebrew (the app offers to install it)
+- **VIPS**: embedded in the `.dmg` app. The CLI and running from source without `pyvips` need `brew install vips`
 - **Building or running from source**: Python 3.9+ with Tk 8.6+
 
 ## 🌍 Features
@@ -87,7 +88,8 @@ See [CLI Usage](#️-cli-usage) below for the full option list.
 - **OME-XML metadata**: Channel names embedded in sidecar XML for QuPath
 
 ### VIPS Integration
-- Automatic detection of VIPS installation paths:
+- The `.dmg` app embeds libvips through `pyvips` and merges in-process, streaming the input files straight into the output TIFF (no intermediate file)
+- Without `pyvips` (CLI, or GUI from source), the `vips` command is used, found in:
   - `/opt/homebrew/bin/vips` (Apple Silicon)
   - `/usr/local/bin/vips` (Intel)
   - `/opt/local/bin/vips` (MacPorts)
@@ -113,7 +115,7 @@ See [CLI Usage](#️-cli-usage) below for the full option list.
 - **Packaging**: macOS Application Bundle (.app)
 - **Metadata**: OME-XML sidecar files for QuPath
 
-### VIPS Installation
+### VIPS Installation (CLI and running from source only)
 ```bash
 # Install Homebrew (if not already installed)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -166,12 +168,12 @@ python3 tiff_channel_merger_cli.py merge \
 python3 tiff_channel_merger_cli.py batch --config batch_jobs.json
 ```
 
-Run `python3 tiff_channel_merger_cli.py --help`, `merge --help`, or `batch --help` for the full option list (pyramidal TIFF is on by default, use `--no-pyramid` to disable it; `--lang fr` switches console messages to French). If VIPS is missing and Homebrew is installed, the CLI prompts to run `brew install vips` for you; pass `-y`/`--yes` to confirm automatically without a prompt (useful in non-interactive scripts, where the prompt is skipped anyway if stdin isn't a TTY). Shared logic lives in `tiff_merger_core.py`; the GUI uses it for batch job lists and reports, but keeps its own merge pipeline.
+Run `python3 tiff_channel_merger_cli.py --help`, `merge --help`, or `batch --help` for the full option list (pyramidal TIFF is on by default, use `--no-pyramid` to disable it; `--lang fr` switches console messages to French). If VIPS is missing and Homebrew is installed, the CLI prompts to run `brew install vips` for you; pass `-y`/`--yes` to confirm automatically without a prompt (useful in non-interactive scripts, where the prompt is skipped anyway if stdin isn't a TTY). Shared logic lives in `tiff_merger_core.py`. The CLI merges with the `vips` command; the `.dmg` app merges with the embedded libvips (`pyvips`). Both write the same TIFF options.
 
 ## 🛠️ Troubleshooting
 
 ### VIPS Not Found
-If the application reports VIPS is not installed:
+This does not happen with the `.dmg` app, which embeds libvips. When running from source or with the CLI, if VIPS is reported missing:
 1. If Homebrew is already installed, accept the "Install VIPS now?" prompt (GUI dialog or CLI `[y/N]`) and it will run `brew install vips` for you
 2. Otherwise, install Homebrew first, then run: `brew install vips`
 3. Restart the application
@@ -195,7 +197,7 @@ If macOS blocks the application:
 ### Permission Issues
 If you get permission errors:
 ```bash
-chmod +x tiff-channel-merger.sh build_dmg.sh
+chmod +x build_dmg.sh
 ```
 
 ### Rebuilding the Application
@@ -263,15 +265,10 @@ macOS/
 ├── tiff_channel_merger_gui.py          # Main Python/Tkinter application
 ├── tiff_channel_merger_cli.py          # Command-line interface (scripting/automation)
 ├── tiff_merger_core.py                 # Shared merge/OME logic used by the GUI and CLI
-├── LAUNCH-HERE.command                 # Double-clickable launcher (source, needs Python with Tk 8.6+)
-├── tiff-channel-merger.sh              # Shell launcher script
-├── LAUNCH.txt                          # Launch guide (all methods, incl. CLI)
 ├── build_dmg.sh                        # Builds the standalone app + .dmg (PyInstaller)
-├── create_app_bundle.sh                # Old name, now calls build_dmg.sh
 ├── QuPath_Import_Instructions.md       # QuPath channel-name import guide
 ├── build/                              # Build files (git-ignored)
 ├── dist/                               # Built app and .dmg (git-ignored)
-├── OLD/                                 # Legacy v3.0 AppleScript implementation
 └── README-macOS.md                     # This file
 ```
 

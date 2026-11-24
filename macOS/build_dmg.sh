@@ -6,8 +6,8 @@
 #   dist/TIFF Channel Merger.app
 #   dist/TIFF-Channel-Merger-<version>.dmg
 #
-# The only thing the finished app still needs on the user's Mac is VIPS
-# (installed with Homebrew; the app offers to do it on first launch).
+# The app is self-contained: Python, Tk and libvips (through pyvips) are
+# embedded, so users do not need Homebrew or VIPS.
 #
 # Build requirement: a Python 3.9+ whose tkinter uses Tk 8.6 or newer.
 # Apple's /usr/bin/python3 ships Tk 8.5, which shows an empty window on
@@ -25,6 +25,8 @@ cd "$SCRIPT_DIR"
 APP_NAME="TIFF Channel Merger"
 VERSION="4.1"
 BUNDLE_ID="org.tiffchannelmerger.app"
+PYVIPS_VERSION="3.2.0"
+PYVIPS_BINARY_VERSION="8.18.7"   # = the libvips version embedded in the app
 BUILD_DIR="$SCRIPT_DIR/build"
 DIST_DIR="$SCRIPT_DIR/dist"
 ICON_PNG="$SCRIPT_DIR/../windows/tiff-merger-icon.png"
@@ -90,6 +92,23 @@ mkdir -p "$BUILD_DIR" "$DIST_DIR"
 "$BUILD_DIR/venv/bin/python" -m pip install --quiet --upgrade pip
 "$BUILD_DIR/venv/bin/python" -m pip install --quiet "pyinstaller>=6.10"
 
+# libvips is embedded through pyvips-binary (a self-contained libvips build).
+# pyvips is only published as source: when it is installed, it compiles its
+# own _libvips module against any libvips that pkg-config finds (e.g.
+# Homebrew's), overwriting the self-contained one. pkg-config is disabled
+# here so the app never depends on Homebrew.
+echo "🧩 Installing embedded libvips (pyvips $PYVIPS_VERSION / libvips $PYVIPS_BINARY_VERSION)..."
+PKG_CONFIG=/usr/bin/false PKG_CONFIG_PATH=/nonexistent \
+    "$BUILD_DIR/venv/bin/python" -m pip install --quiet --no-cache-dir \
+    "pyvips==$PYVIPS_VERSION" "pyvips-binary==$PYVIPS_BINARY_VERSION"
+
+# Fail early if the libvips module links to anything outside the venv
+if DYLD_PRINT_LIBRARIES=1 "$BUILD_DIR/venv/bin/python" -c "import pyvips" 2>&1 \
+        | grep -E "/(opt/homebrew|usr/local|opt/local)/" ; then
+    echo "❌ pyvips loads libraries from Homebrew/MacPorts (listed above): the app would not work on other Macs." >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # 3. App icon (.icns) from the shared PNG icon
 # ---------------------------------------------------------------------------
@@ -113,6 +132,7 @@ echo "🔨 Building $APP_NAME.app (this takes a minute)..."
     --name "$APP_NAME" \
     --icon "$BUILD_DIR/AppIcon.icns" \
     --osx-bundle-identifier "$BUNDLE_ID" \
+    --hidden-import _libvips \
     --distpath "$DIST_DIR" \
     --workpath "$BUILD_DIR/pyinstaller" \
     --specpath "$BUILD_DIR" \
@@ -128,6 +148,22 @@ plutil -replace NSHighResolutionCapable -bool true "$PLIST"
 # (ad-hoc only, the app is not notarized by Apple)
 codesign --force --deep --sign - "$APP_PATH" >/dev/null 2>&1
 codesign --verify --deep "$APP_PATH"
+
+# The built app must merge with its own libvips, without Homebrew: run its
+# headless self-test with a minimal PATH and check every loaded library
+echo "🧪 Testing the embedded libvips..."
+SELF_TEST_LOG="$BUILD_DIR/self_test.log"
+env -i HOME="$HOME" PATH=/usr/bin:/bin DYLD_PRINT_LIBRARIES=1 \
+    "$APP_PATH/Contents/MacOS/$APP_NAME" --self-test >"$SELF_TEST_LOG" 2>&1 || true
+grep -v "^dyld" "$SELF_TEST_LOG" | sed 's/^/   /'
+if ! grep -q "SELF-TEST OK" "$SELF_TEST_LOG"; then
+    echo "❌ Self-test failed (full log: $SELF_TEST_LOG)" >&2
+    exit 1
+fi
+if grep -E "^dyld.*/(opt/homebrew|usr/local|opt/local)/" "$SELF_TEST_LOG"; then
+    echo "❌ The app loads libraries from Homebrew/MacPorts (listed above)." >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 5. Drag-to-Applications disk image
