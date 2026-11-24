@@ -35,3 +35,6 @@ __pycache__/
 *.swp
 *.swo
 *~
+# macOS app build (macOS/build_dmg.sh)
+macOS/build/
+macOS/dist/

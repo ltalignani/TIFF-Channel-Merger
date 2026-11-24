@@ -19,12 +19,17 @@ import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import tiff_merger_core as core
 
 MESSAGES = {
     "en": {
         "vips_not_found": "VIPS is not installed or could not be found.\nInstall it with: brew install vips",
+        "vips_install_prompt": "VIPS is not installed. Install it now via Homebrew? [y/N]: ",
+        "vips_installing": "Installing VIPS via Homebrew (this may take a few minutes)...",
+        "vips_install_ok": "VIPS installed successfully.",
+        "vips_install_failed": "Automatic installation failed:\n{err}\nInstall it manually with: brew install vips",
         "min_two_files": "At least 2 files are required to merge channels.",
         "merging": "Merging {n} channels into {out}...",
         "merge_ok": "Merge complete.",
@@ -40,6 +45,10 @@ MESSAGES = {
     },
     "fr": {
         "vips_not_found": "VIPS n'est pas installe ou introuvable.\nInstallez-le avec : brew install vips",
+        "vips_install_prompt": "VIPS n'est pas installe. L'installer maintenant via Homebrew ? [o/N] : ",
+        "vips_installing": "Installation de VIPS via Homebrew (cela peut prendre quelques minutes)...",
+        "vips_install_ok": "VIPS installe avec succes.",
+        "vips_install_failed": "L'installation automatique a echoue :\n{err}\nInstallez-le manuellement avec : brew install vips",
         "min_two_files": "Au moins 2 fichiers sont requis pour fusionner des canaux.",
         "merging": "Fusion de {n} canaux vers {out}...",
         "merge_ok": "Fusion terminee.",
@@ -72,19 +81,60 @@ def build_parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--output-name", required=True, help="Output file name, without extension.")
     merge_parser.add_argument("--output-dir", required=True, help="Output directory.")
     merge_parser.add_argument("--no-pyramid", action="store_true", help="Disable pyramidal TIFF generation (enabled by default).")
+    merge_parser.add_argument("-y", "--yes", action="store_true",
+                               help="Auto-confirm installing VIPS via Homebrew if it's missing, without prompting.")
 
     batch_parser = subparsers.add_parser("batch", help="Run a batch of merge jobs from a JSON config.")
     batch_parser.add_argument("--config", required=True, help="Path to a batch_jobs.json file (same schema as the Windows GUI).")
     batch_parser.add_argument("--no-pyramid", action="store_true", help="Disable pyramidal TIFF generation (enabled by default).")
     batch_parser.add_argument("--no-report", action="store_true", help="Skip writing batch_report.txt.")
+    batch_parser.add_argument("-y", "--yes", action="store_true",
+                               help="Auto-confirm installing VIPS via Homebrew if it's missing, without prompting.")
 
     return parser
 
 
-def run_merge(args, texts) -> int:
+def ensure_vips(args, texts) -> Optional[str]:
+    """Find VIPS, offering to install it via Homebrew if missing.
+
+    Prompts for confirmation unless --yes was passed; never prompts when
+    stdin isn't a TTY (e.g. running from a script/CI), to avoid hanging.
+    """
+    vips_path = core.find_vips()
+    if vips_path:
+        return vips_path
+
+    if not core.homebrew_available():
+        print(texts["vips_not_found"], file=sys.stderr)
+        return None
+
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print(texts["vips_not_found"], file=sys.stderr)
+            return None
+        answer = input(texts["vips_install_prompt"]).strip().lower()
+        if answer not in ("y", "yes", "o", "oui"):
+            print(texts["vips_not_found"], file=sys.stderr)
+            return None
+
+    print(texts["vips_installing"])
+    result = core.install_vips_via_brew()
+    if result.returncode != 0:
+        print(texts["vips_install_failed"].format(err=result.stderr.strip()), file=sys.stderr)
+        return None
+
     vips_path = core.find_vips()
     if not vips_path:
         print(texts["vips_not_found"], file=sys.stderr)
+        return None
+
+    print(texts["vips_install_ok"])
+    return vips_path
+
+
+def run_merge(args, texts) -> int:
+    vips_path = ensure_vips(args, texts)
+    if not vips_path:
         return 1
 
     if len(args.files) < 2:
@@ -116,9 +166,8 @@ def run_merge(args, texts) -> int:
 
 
 def run_batch(args, texts) -> int:
-    vips_path = core.find_vips()
+    vips_path = ensure_vips(args, texts)
     if not vips_path:
-        print(texts["vips_not_found"], file=sys.stderr)
         return 1
 
     print(texts["batch_loading"].format(path=args.config))
@@ -141,7 +190,7 @@ def run_batch(args, texts) -> int:
                 channel_names=job.channel_names,
                 output_name=job.output_name,
                 output_dir=job.output_path,
-                pyramid=not args.no_pyramid,
+                pyramid=job.pyramid and not args.no_pyramid,
             )
             job.status = "Completed"
         except (core.MergeError, ValueError) as e:

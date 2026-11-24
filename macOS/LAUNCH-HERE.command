@@ -1,6 +1,5 @@
 #!/bin/bash
 # TIFF Channel Merger - macOS Launcher
-# Double-cliquez sur ce fichier pour lancer TIFF Channel Merger
 # Double-click this file to launch TIFF Channel Merger
 #
 # Copyright (c) 2024 Loïc Talignani & Céline Talignani
@@ -15,7 +14,7 @@ clear
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "    🔬 TIFF Channel Merger"
-echo "    Lancement de l'application..."
+echo "    Launching the application..."
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -26,8 +25,8 @@ python3 tiff_channel_merger_gui.py
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "    Application fermée."
-echo "    Vous pouvez fermer cette fenêtre."
+echo "    Application closed."
+echo "    You can close this window."
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

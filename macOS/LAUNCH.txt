@@ -1,0 +1,67 @@
+TIFF Channel Merger - Launch Guide
+
+There are 5 ways to launch the application:
+
+------------------------------------------------------
+
+1) Double-clickable launcher with a Terminal window
+
+   Double-click: LAUNCH-HERE.command
+
+   - Opens a Terminal window next to the GUI
+   - Shows error messages if the app does not start
+
+------------------------------------------------------
+
+2) Shell script
+
+   Double-click (or run from Terminal): tiff-channel-merger.sh
+
+   - Simple and direct
+   - Checks that Python 3 and VIPS are available before launching
+
+------------------------------------------------------
+
+3) RECOMMENDED METHOD - Installed app
+
+   Open TIFF-Channel-Merger-<version>.dmg and drag "TIFF Channel Merger"
+   onto Applications, then start it from Launchpad or Applications.
+
+   - Build the .dmg with: ./build_dmg.sh  (output in dist/)
+   - If macOS blocks it on first launch ("unidentified developer"),
+     right-click the app, choose Open, then confirm
+
+   Methods 1 and 2 run the source code: they need a python3 with
+   Tk 8.6+ (Apple's /usr/bin/python3 shows an empty window).
+
+------------------------------------------------------
+
+4) Command-line interface (for scripting / automation)
+
+   For batch processing or automated pipelines, use the CLI instead of
+   the GUI:
+
+   cd "/path/to/macOS"
+   python3 tiff_channel_merger_cli.py merge \
+       --files ch1.tif ch2.tif ch3.tif \
+       --names DAPI GFP RFP \
+       --output-name merged_channels \
+       --output-dir ~/Desktop
+
+   Run with --help for the full option list, or use the "batch"
+   subcommand to process a batch_jobs.json file.
+
+------------------------------------------------------
+
+5) Terminal (advanced users, GUI)
+
+   Open Terminal and run:
+   cd "/path/to/macOS"
+   python3 tiff_channel_merger_gui.py
+
+------------------------------------------------------
+
+REQUIREMENT: Make sure VIPS is installed
+   brew install vips
+
+------------------------------------------------------

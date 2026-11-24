@@ -3,9 +3,10 @@
 """
 Shared core logic for TIFF Channel Merger (macOS).
 
-Used by the CLI (tiff_channel_merger_cli.py). Not yet used by the Tkinter
-GUI (tiff_channel_merger_gui.py) - the GUI keeps its own copy of this logic
-for now and may be migrated to this module later.
+Used by the CLI (tiff_channel_merger_cli.py). The Tkinter GUI
+(tiff_channel_merger_gui.py) only uses the batch helpers (BatchJob, batch
+config load/save, batch report); it still keeps its own merge pipeline
+(bandjoin to a temp TIFF + OME-XML sidecar) and may be migrated here later.
 
 Mirrors the current behavior of the Windows version (windows/TIFF-Channel-Merger.ps1):
 - bandjoin merges directly into a .v (VIPS native) intermediate file to avoid
@@ -53,6 +54,36 @@ def find_vips() -> Optional[str]:
             except (subprocess.CalledProcessError, OSError):
                 continue
     return shutil.which("vips")
+
+
+BREW_CANDIDATE_PATHS = [
+    "/opt/homebrew/bin/brew",  # Apple Silicon
+    "/usr/local/bin/brew",     # Intel
+]
+
+
+def find_brew() -> Optional[str]:
+    """Locate Homebrew. Checks the standard install paths first because an app
+    launched from the Finder does not have Homebrew's bin folder in its PATH."""
+    for path in BREW_CANDIDATE_PATHS:
+        if os.access(path, os.X_OK):
+            return path
+    return shutil.which("brew")
+
+
+def homebrew_available() -> bool:
+    """Check whether Homebrew itself is installed."""
+    return find_brew() is not None
+
+
+def install_vips_via_brew() -> subprocess.CompletedProcess:
+    """Run `brew install vips`. Caller must check homebrew_available() first."""
+    brew_path = find_brew()
+    env = os.environ.copy()
+    # Finder-launched apps get a minimal PATH; brew needs its own bin folder
+    env["PATH"] = f"{os.path.dirname(brew_path)}:{env.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')}"
+    return subprocess.run([brew_path, "install", "vips"], capture_output=True, text=True,
+                          check=False, env=env)
 
 
 def _vips_env():
@@ -229,6 +260,7 @@ class BatchJob:
     channel_names: List[str] = field(default_factory=list)
     output_name: str = ""
     output_path: str = ""
+    pyramid: bool = True  # Not in the Windows schema; Windows ignores the extra key and always builds pyramids
     status: str = "Pending"  # Pending, Running, Completed, Error
     error_message: str = ""
     start_time: Optional[datetime] = None
@@ -246,6 +278,7 @@ class BatchJob:
             "channelNames": self.channel_names,
             "outputName": self.output_name,
             "outputPath": self.output_path,
+            "pyramid": self.pyramid,
             "status": self.status,
         }
 
@@ -257,6 +290,7 @@ class BatchJob:
             channel_names=list(data.get("channelNames") or []),
             output_name=data.get("outputName", ""),
             output_path=data.get("outputPath", ""),
+            pyramid=bool(data.get("pyramid", True)),
             status="Pending",  # Reset status when loading, matching Windows Load-BatchConfig
         )
 
