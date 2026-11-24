@@ -1,24 +1,30 @@
-# 🔬 TIFF Channel Merger
+# TIFF Channel Merger
 
 Cross-platform application for merging multiple TIFF files (fluorescence channels) into a single multi-channel TIFF file optimized for QuPath microscopy image analysis.
 
-## 🌍 Platform Support
+## Platform Support
 
 | Platform | Application | Language Support | Advanced Features | VIPS Installation |
 |----------|-------------|------------------|-------------------|-------------------|
-| **macOS** | Python/Tkinter GUI | 🇫🇷 🇬🇧 | ✅ Channel ordering<br>✅ Channel naming<br>✅ OME-XML | Manual (Homebrew) |
+| **macOS** | Python/Tkinter GUI + CLI | 🇫🇷 🇬🇧 | ✅ Channel ordering<br>✅ Channel naming<br>✅ OME-XML<br>✅ Batch mode (GUI + CLI) | Homebrew, offered automatically if missing |
 | **Windows** | PowerShell GUI | 🇫🇷 🇬🇧 | ✅ Channel ordering<br>✅ Channel naming<br>✅ OME-XML | Automatic Download |
 
-## 🚀 Quick Start
+## Quick Start
 
 ### macOS
 
+1. Open `TIFF-Channel-Merger-<version>.dmg` and drag **TIFF Channel Merger** onto **Applications**.
+2. Start the app from Launchpad, Spotlight or the Applications folder. On first launch, right-click the app and choose **Open**, because it is not signed by Apple.
+3. If VIPS is missing, the app offers to install it with Homebrew.
+
+To build the `.dmg` from the source code:
+
 ```bash
 cd macOS/
-open "TIFF Channel Merger.app"
-# Or run directly:
-./tiff-channel-merger.sh
+./build_dmg.sh     # creates dist/TIFF-Channel-Merger-<version>.dmg
 ```
+
+See the [macOS installation guide](macOS/README-macOS.md#-installation) for running from source, the command line, and troubleshooting.
 
 ### Windows
 
@@ -27,9 +33,9 @@ cd windows\
 TIFF-Channel-Merger.bat
 ```
 
-## 📋 Features
+## Features
 
-### ✨ Core Functionality
+### Core Functionality
 
 - **Multi-channel merging**: Combine 2+ TIFF files into single multi-channel image
 - **Interactive channel ordering**: Reorder files with ▲/▼ buttons to control channel assignment
@@ -39,45 +45,49 @@ TIFF-Channel-Merger.bat
 - **LZW compression**: Reduced file sizes with lossless compression
 - **BigTIFF support**: Handle files larger than 4GB
 
-### 🌍 User Experience
+### User Experience
 
 - **Bilingual interface**: Complete French/English localization
 - **Modern GUI**: Python/Tkinter (macOS) and WinForms (Windows)
 - **Visual file ordering**: See and rearrange channel order before merging
 - **Channel labeling**: Name each channel for easier QuPath workflow
 - **Progress tracking**: Visual feedback during processing
-- **Auto-installation**: VIPS dependency management (Windows)
+- **Auto-installation**: VIPS dependency management (Windows: automatic download; macOS: one-click install via Homebrew when missing)
 
-### 🔧 Technical Features
+### Technical Features
 
 - **Cross-platform parity**: Identical features on macOS and Windows
 - **VIPS integration**: Professional image processing library
 - **QuPath optimization**: OME-XML metadata for automatic channel recognition
 - **Error handling**: Comprehensive validation and user feedback
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 TIFF-Channel-Merger/
 ├── macOS/                              # macOS Application (v4.0)
-│   ├── TIFF Channel Merger.app/        # Ready-to-use macOS app bundle
 │   ├── tiff_channel_merger_gui.py      # Main Python/Tkinter GUI
-│   ├── tiff-channel-merger.sh          # Terminal launcher
-│   ├── create_app_bundle.sh            # App bundle builder
-│   ├── fusion_canaux_gui_*.applescript # Legacy AppleScript (v3.0)
+│   ├── tiff_channel_merger_cli.py      # Command-line interface (scripting/automation)
+│   ├── tiff_merger_core.py             # Shared merge/OME logic used by the GUI and CLI
+│   ├── LAUNCH-HERE.command             # Double-clickable launcher (runs from source)
+│   ├── tiff-channel-merger.sh          # Shell launcher script
+│   ├── LAUNCH.txt                      # Launch guide (all methods, incl. CLI)
+│   ├── build_dmg.sh                    # Builds the standalone app + .dmg
+│   ├── QuPath_Import_Instructions.md   # QuPath integration guide
+│   ├── OLD/                            # Legacy v3.0 AppleScript implementation
 │   └── README-macOS.md                 # macOS-specific docs
 ├── windows/                            # Windows Application
 │   ├── TIFF-Channel-Merger.ps1         # PowerShell GUI app
 │   ├── TIFF-Channel-Merger.bat         # Windows launcher
 │   ├── QuPath_Import_Instructions.md   # QuPath integration guide
+│   ├── OLD/                            # Legacy PowerShell versions
 │   └── README-Windows.md               # Windows-specific docs
-├── fusion_canaux_simple_script.sh      # VIPS usage examples (reference)
-├── CLAUDE.md                          # Development documentation
-├── README.md                          # This file
-└── OLD/                               # Development archives
+├── vips_debug/                         # VIPS diagnostic scripts (Windows)
+├── CLAUDE.md                           # Development documentation
+└── README.md                           # This file
 ```
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 ### macOS Prerequisites
 
@@ -88,9 +98,12 @@ TIFF-Channel-Merger/
 # Install VIPS
 brew install vips
 
-# Python 3 is pre-installed on macOS 10.15+
-# Tkinter is usually included with Python
+# The .dmg app embeds Python and Tk: nothing else to install.
+# To run or build from source, you need Python 3.9+ with Tk 8.6+
+# (Apple's /usr/bin/python3 has Tk 8.5 and shows an empty window).
 ```
+
+Homebrew itself must be installed manually, but once it is, both the GUI and the CLI detect a missing VIPS and offer to run `brew install vips` for you (`-y`/`--yes` on the CLI to skip the confirmation prompt).
 
 ### Windows Prerequisites
 
@@ -98,7 +111,7 @@ brew install vips
 - .NET Framework 4.5+ (usually pre-installed)
 - VIPS will be automatically downloaded and installed
 
-## 💡 Usage Workflow
+## Usage Workflow
 
 1. **🌍 Language Selection**: Choose French or English interface
 2. **📁 File Selection**: Add 2+ TIFF files representing different channels
@@ -111,7 +124,7 @@ brew install vips
 6. **⚙️ Processing**: Automatic channel merging with OME-XML metadata generation
 7. **✅ Completion**: Open result folder - files ready for QuPath with channel names!
 
-## 🔗 QuPath Integration
+## QuPath Integration
 
 The merged TIFF files are optimized for QuPath with **automatic channel recognition**:
 
@@ -129,7 +142,7 @@ The merged TIFF files are optimized for QuPath with **automatic channel recognit
 3. **Adjust channels**: View → Brightness/Contrast (Shift+C)
 4. **Customize**: Manually set names, colors and visibility
 
-## 🎯 Technical Specifications
+## Technical Specifications
 
 ### Supported Formats
 
@@ -159,13 +172,13 @@ vips tiffsave merged.tif output.tif \
 - **Large images** (>1GB): Pyramidal TIFF recommended
 - **Processing time**: Scales with file size and channel count
 
-## 🆘 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
 **macOS:**
 
-- **VIPS not found**: Install via `brew install vips`
+- **VIPS not found**: The app/CLI offers to install it automatically via Homebrew; if Homebrew isn't installed, install VIPS manually with `brew install vips`
 - **App won't open**: Right-click → Open to bypass security
 - **Permission errors**: Check file/folder permissions
 
@@ -181,7 +194,7 @@ vips tiffsave merged.tif output.tif \
 - Review `CLAUDE.md` for development documentation
 - Verify VIPS installation: `vips --version`
 
-## 🔄 Updates & Development
+## Updates & Development
 
 ### Building from Source
 
@@ -189,9 +202,9 @@ vips tiffsave merged.tif output.tif \
 
 ```bash
 cd macOS/
-# Build application bundle
-./create_app_bundle.sh
-# Application will be created as "TIFF Channel Merger.app"
+# Build the standalone app and the .dmg
+./build_dmg.sh
+# Creates dist/TIFF Channel Merger.app and dist/TIFF-Channel-Merger-<version>.dmg
 ```
 
 **Windows:**
@@ -206,7 +219,7 @@ cd macOS/
 - Test on both platforms when making changes
 - Preserve compatibility with VIPS library updates
 
-## 📄 License & Credits
+## License & Credits
 
 ### License
 
@@ -234,4 +247,4 @@ See the [LICENSE](LICENSE) file for details.
 
 ---
 
-**🎯 Goal**: Simplify multi-channel TIFF preparation for microscopy image analysis across macOS and Windows platforms.
+**Goal**: Simplify multi-channel TIFF preparation for microscopy image analysis across macOS and Windows platforms.

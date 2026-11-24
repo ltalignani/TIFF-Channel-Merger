@@ -14,12 +14,16 @@ http://creativecommons.org/licenses/by-nc-sa/4.0/
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import ttk, filedialog, messagebox
 import subprocess
 import os
-import sys
 from pathlib import Path
 import shutil
+import threading
+import queue
+from datetime import datetime
+
+import tiff_merger_core as core
 
 class TIFFChannelMerger:
     def __init__(self, root):
@@ -29,9 +33,21 @@ class TIFFChannelMerger:
 
         # Variables
         self.language = tk.StringVar(value="")
+        self.lang_name = ""
         self.selected_files = []
         self.channel_names = []
         self.vips_path = ""
+
+        # "single": normal merge-and-quit flow.
+        # "batch_add" / "batch_edit": file selection / output config screens are
+        # reused to build a core.BatchJob and return to the job manager instead
+        # of merging immediately.
+        self.mode = "single"
+        self.batch_jobs = []
+        self.batch_edit_index = None
+        self._edit_output_name = ""
+        self._edit_output_dir = ""
+        self._edit_pyramid = True
 
         # Texts
         self.texts = {}
@@ -64,6 +80,8 @@ class TIFFChannelMerger:
     def select_language(self, lang):
         """Initialize texts and check VIPS"""
         self.language.set(lang)
+        # Plain-string copy: worker threads must not touch Tk variables
+        self.lang_name = lang
         self.init_texts(lang)
 
         # Clear language selection frame
@@ -72,12 +90,62 @@ class TIFFChannelMerger:
 
         # Check VIPS installation
         if not self.check_vips():
-            messagebox.showerror(self.texts["error"], self.texts["vipsNotInstalled"])
-            self.root.quit()
+            self.offer_vips_install()
             return
 
         # Show welcome screen
         self.show_welcome()
+
+    def offer_vips_install(self):
+        """VIPS is missing: offer to install it via Homebrew, or show manual instructions."""
+        if not core.homebrew_available():
+            messagebox.showerror(self.texts["error"], self.texts["homebrewMissing"])
+            self.root.quit()
+            return
+
+        if messagebox.askyesno(self.texts["error"], self.texts["vipsInstallPrompt"]):
+            self.show_vips_install_progress()
+            self.perform_vips_install()
+        else:
+            messagebox.showerror(self.texts["error"], self.texts["vipsNotInstalled"])
+            self.root.quit()
+
+    def show_vips_install_progress(self):
+        """Show a progress screen while Homebrew installs VIPS"""
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        progress_frame = ttk.Frame(self.root, padding="60")
+        progress_frame.pack(expand=True)
+
+        title = ttk.Label(progress_frame, text=self.texts["vipsInstalling"],
+                         font=("Helvetica", 16, "bold"))
+        title.pack(pady=20)
+
+        desc = ttk.Label(progress_frame, text=self.texts["vipsInstallingDesc"],
+                        font=("Helvetica", 12))
+        desc.pack(pady=10)
+
+        progress_bar = ttk.Progressbar(progress_frame, mode='indeterminate', length=400)
+        progress_bar.pack(pady=30)
+        progress_bar.start(10)
+
+    def perform_vips_install(self):
+        """Run `brew install vips` in the background (keeps the progress bar
+        animated), then re-check and either continue or bail out"""
+        def on_done(result, error):
+            for widget in self.root.winfo_children():
+                widget.destroy()
+
+            if error is None and result.returncode == 0 and self.check_vips():
+                self.show_welcome()
+            else:
+                detail = str(error) if error else (result.stderr or result.stdout or "")
+                messagebox.showerror(self.texts["error"],
+                                     f"{self.texts['vipsInstallFailed']}\n\n{detail.strip()[-800:]}")
+                self.root.quit()
+
+        self.run_in_background(core.install_vips_via_brew, on_done)
 
     def init_texts(self, lang):
         """Initialize text strings based on language"""
@@ -86,6 +154,11 @@ class TIFFChannelMerger:
                 "appTitle": "Fusion de canaux TIFF",
                 "error": "Erreur",
                 "vipsNotInstalled": "VIPS n'est pas installé.\n\nInstallez-le avec:\nbrew install vips",
+                "homebrewMissing": "VIPS n'est pas installé, et Homebrew non plus.\n\n1. Installez Homebrew : https://brew.sh\n2. Dans le Terminal : brew install vips\n3. Relancez TIFF Channel Merger.",
+                "vipsInstallPrompt": "VIPS n'est pas installé.\n\nVoulez-vous l'installer maintenant via Homebrew ?\n(Cela peut prendre quelques minutes)",
+                "vipsInstalling": "Installation de VIPS...",
+                "vipsInstallingDesc": "Installation via Homebrew en cours. Veuillez patienter...",
+                "vipsInstallFailed": "Échec de l'installation automatique de VIPS.\nInstallez-le manuellement avec: brew install vips",
                 "welcome": "Bienvenue dans le Fusionneur de canaux TIFF",
                 "welcomeDesc": "Cette application permet de fusionner plusieurs fichiers TIFF\n(canaux de fluorescence) en un seul fichier multi-canal\noptimisé pour QuPath.",
                 "start": "Commencer",
@@ -117,12 +190,53 @@ class TIFFChannelMerger:
                 "successDesc": "La fusion a été terminée avec succès!\n\nFichier créé:",
                 "openFolder": "Ouvrir le dossier",
                 "finish": "Terminer",
+                "batchMode": "Mode Batch",
+                "batchJobManager": "Gestionnaire de jobs batch",
+                "batchJobManagerDesc": "Configurez plusieurs fusions à traiter à la suite\n(par exemple : plusieurs lames de microscopie).",
+                "addJob": "Ajouter un job",
+                "editJob": "Modifier",
+                "removeJob": "Supprimer",
+                "saveBatchList": "💾 Sauvegarder la liste",
+                "loadBatchList": "📂 Charger une liste",
+                "runBatch": "▶ Lancer le batch",
+                "backToWelcome": "Menu principal",
+                "addToBatch": "Ajouter au batch",
+                "updateBatchJob": "Mettre à jour le job",
+                "colJobName": "Nom",
+                "colChannels": "Canaux",
+                "colOutput": "Sortie",
+                "colStatus": "Statut",
+                "statusPending": "En attente",
+                "statusRunning": "En cours",
+                "statusCompleted": "Terminé",
+                "statusError": "Erreur",
+                "noJobSelected": "Sélectionnez un job dans la liste.",
+                "confirmRemoveJob": "Supprimer ce job de la liste ?",
+                "noJobsToRun": "Ajoutez au moins un job avant de lancer le batch.",
+                "batchProcessing": "Traitement du batch en cours...",
+                "batchProcessingJob": "Job",
+                "batchComplete": "Batch terminé !",
+                "batchReportSaved": "Rapport enregistré dans :",
+                "openLastFolder": "Ouvrir le dernier dossier",
+                "backToJobList": "Liste des jobs",
+                "batchSummary": "{completed} / {total} job(s) terminé(s), {errors} erreur(s).",
+                "batchReportFailed": "Impossible d'écrire le rapport :",
+                "duplicateOutput": "Un autre job écrit déjà dans ce fichier :\n{path}\n\nChoisissez un autre nom ou dossier.",
+                "loadFailed": "Impossible de charger la liste de jobs :",
+                "saveFailed": "Impossible de sauvegarder la liste de jobs :",
+                "inputNotFound": "Fichier introuvable :",
+                "outputDirMissing": "Dossier de sortie introuvable :",
             }
         else:
             self.texts = {
                 "appTitle": "TIFF Channel Merger",
                 "error": "Error",
                 "vipsNotInstalled": "VIPS is not installed.\n\nInstall it with:\nbrew install vips",
+                "homebrewMissing": "VIPS is not installed, and neither is Homebrew.\n\n1. Install Homebrew: https://brew.sh\n2. In the Terminal: brew install vips\n3. Restart TIFF Channel Merger.",
+                "vipsInstallPrompt": "VIPS is not installed.\n\nInstall it now via Homebrew?\n(This may take a few minutes)",
+                "vipsInstalling": "Installing VIPS...",
+                "vipsInstallingDesc": "Installing via Homebrew. Please wait...",
+                "vipsInstallFailed": "Automatic VIPS installation failed.\nInstall it manually with: brew install vips",
                 "welcome": "Welcome to TIFF Channel Merger",
                 "welcomeDesc": "This application allows you to merge multiple TIFF files\n(fluorescence channels) into a single multi-channel file\noptimized for QuPath.",
                 "start": "Start",
@@ -154,31 +268,50 @@ class TIFFChannelMerger:
                 "successDesc": "Merge completed successfully!\n\nFile created:",
                 "openFolder": "Open Folder",
                 "finish": "Finish",
+                "batchMode": "Batch Mode",
+                "batchJobManager": "Batch Job Manager",
+                "batchJobManagerDesc": "Configure multiple merges to process in sequence\n(e.g. multiple microscopy slides).",
+                "addJob": "Add Job",
+                "editJob": "Edit",
+                "removeJob": "Remove",
+                "saveBatchList": "💾 Save List",
+                "loadBatchList": "📂 Load List",
+                "runBatch": "▶ Run Batch",
+                "backToWelcome": "Main Menu",
+                "addToBatch": "Add to Batch",
+                "updateBatchJob": "Update Job",
+                "colJobName": "Name",
+                "colChannels": "Channels",
+                "colOutput": "Output",
+                "colStatus": "Status",
+                "statusPending": "Pending",
+                "statusRunning": "Running",
+                "statusCompleted": "Completed",
+                "statusError": "Error",
+                "noJobSelected": "Select a job from the list.",
+                "confirmRemoveJob": "Remove this job from the list?",
+                "noJobsToRun": "Add at least one job before running the batch.",
+                "batchProcessing": "Batch processing in progress...",
+                "batchProcessingJob": "Job",
+                "batchComplete": "Batch complete!",
+                "batchReportSaved": "Report saved to:",
+                "openLastFolder": "Open Last Folder",
+                "backToJobList": "Job List",
+                "batchSummary": "{completed} / {total} job(s) completed, {errors} error(s).",
+                "batchReportFailed": "Could not write the report:",
+                "duplicateOutput": "Another job already writes to this file:\n{path}\n\nChoose another name or folder.",
+                "loadFailed": "Could not load the job list:",
+                "saveFailed": "Could not save the job list:",
+                "inputNotFound": "File not found:",
+                "outputDirMissing": "Output folder not found:",
             }
 
     def check_vips(self):
-        """Check if VIPS is installed"""
-        possible_paths = [
-            "/opt/homebrew/bin/vips",
-            "/usr/local/bin/vips",
-            "/opt/local/bin/vips"
-        ]
-
-        for path in possible_paths:
-            if os.path.exists(path):
-                try:
-                    subprocess.run([path, "--version"], capture_output=True, check=True)
-                    self.vips_path = path
-                    return True
-                except:
-                    continue
-
-        # Try finding it in PATH
-        vips_path = shutil.which("vips")
+        """Check if VIPS is installed (Homebrew/MacPorts paths first, then PATH)"""
+        vips_path = core.find_vips()
         if vips_path:
             self.vips_path = vips_path
             return True
-
         return False
 
     def show_welcome(self):
@@ -198,9 +331,26 @@ class TIFFChannelMerger:
         btn_frame.pack(pady=30)
 
         ttk.Button(btn_frame, text=self.texts["start"], width=15,
-                  command=self.show_file_selection).pack(side=tk.LEFT, padx=10)
+                  command=self.start_single_mode).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text=self.texts["batchMode"], width=15,
+                  command=self.show_batch_job_manager).pack(side=tk.LEFT, padx=10)
         ttk.Button(btn_frame, text=self.texts["quit"], width=15,
                   command=self.root.quit).pack(side=tk.LEFT, padx=10)
+
+    def start_single_mode(self):
+        """Enter the normal single-merge flow"""
+        self.mode = "single"
+        self.reset_current_job()
+        self.show_file_selection()
+
+    def reset_current_job(self):
+        """Clear the file list/channel names being edited (used before starting
+        a new single merge, or before adding/editing a batch job)"""
+        self.selected_files = []
+        self.channel_names = []
+        self._edit_output_name = ""
+        self._edit_output_dir = ""
+        self._edit_pyramid = True
 
     def show_file_selection(self):
         """Show file selection screen with ordering and naming"""
@@ -232,6 +382,10 @@ class TIFFChannelMerger:
                                        yscrollcommand=scrollbar.set)
         self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.file_listbox.yview)
+
+        # Re-populate from state when editing an existing batch job
+        for file_path in self.selected_files:
+            self.file_listbox.insert(tk.END, os.path.basename(file_path))
 
         # Buttons for file management
         btn_frame = ttk.Frame(main_frame)
@@ -275,15 +429,18 @@ class TIFFChannelMerger:
         scrollbar_naming.pack(side=tk.RIGHT, fill=tk.Y)
 
         self.channel_entries = []
+        self.update_channel_naming()
 
         # Navigation buttons
         nav_frame = ttk.Frame(main_frame)
         nav_frame.pack(pady=20)
 
+        cancel_command = self.show_batch_job_manager if self.mode != "single" else self.root.quit
+
         ttk.Button(nav_frame, text=self.texts["continue"], width=15,
                   command=self.show_output_config).pack(side=tk.LEFT, padx=10)
         ttk.Button(nav_frame, text=self.texts["cancel"], width=15,
-                  command=self.root.quit).pack(side=tk.LEFT, padx=10)
+                  command=cancel_command).pack(side=tk.LEFT, padx=10)
 
     def add_file(self):
         """Add TIFF file(s) to list - supports multiple selection"""
@@ -403,7 +560,7 @@ class TIFFChannelMerger:
 
         ttk.Label(name_frame, text=self.texts["outputName"],
                  font=("Helvetica", 12)).pack(anchor=tk.W, pady=5)
-        self.output_name_var = tk.StringVar(value="merged_channels")
+        self.output_name_var = tk.StringVar(value=self._edit_output_name or "merged_channels")
         ttk.Entry(name_frame, textvariable=self.output_name_var,
                  width=50, font=("Helvetica", 11)).pack(fill=tk.X, pady=5)
 
@@ -417,7 +574,7 @@ class TIFFChannelMerger:
         loc_entry_frame = ttk.Frame(location_frame)
         loc_entry_frame.pack(fill=tk.X, pady=5)
 
-        self.output_location_var = tk.StringVar(value=os.path.expanduser("~/Desktop"))
+        self.output_location_var = tk.StringVar(value=self._edit_output_dir or os.path.expanduser("~/Desktop"))
         ttk.Entry(loc_entry_frame, textvariable=self.output_location_var,
                  width=40, font=("Helvetica", 11)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(loc_entry_frame, text=self.texts["browse"],
@@ -427,7 +584,7 @@ class TIFFChannelMerger:
         pyramid_frame = ttk.Frame(main_frame)
         pyramid_frame.pack(pady=20)
 
-        self.pyramid_var = tk.BooleanVar(value=True)
+        self.pyramid_var = tk.BooleanVar(value=self._edit_pyramid)
         ttk.Checkbutton(pyramid_frame, text=self.texts["pyramidal"],
                        variable=self.pyramid_var).pack(anchor=tk.W)
         ttk.Label(pyramid_frame, text=self.texts["pyramidalDesc"],
@@ -437,12 +594,21 @@ class TIFFChannelMerger:
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(pady=30)
 
-        ttk.Button(btn_frame, text=self.texts["merge"], width=15,
-                  command=self.start_merge).pack(side=tk.LEFT, padx=10)
+        if self.mode == "batch_edit":
+            primary_text, primary_command = self.texts["updateBatchJob"], self.save_batch_job
+        elif self.mode == "batch_add":
+            primary_text, primary_command = self.texts["addToBatch"], self.save_batch_job
+        else:
+            primary_text, primary_command = self.texts["merge"], self.start_merge
+
+        cancel_command = self.show_batch_job_manager if self.mode != "single" else self.root.quit
+
+        ttk.Button(btn_frame, text=primary_text, width=15,
+                  command=primary_command).pack(side=tk.LEFT, padx=10)
         ttk.Button(btn_frame, text=self.texts["back"], width=15,
                   command=self.show_file_selection).pack(side=tk.LEFT, padx=10)
         ttk.Button(btn_frame, text=self.texts["cancel"], width=15,
-                  command=self.root.quit).pack(side=tk.LEFT, padx=10)
+                  command=cancel_command).pack(side=tk.LEFT, padx=10)
 
     def browse_output(self):
         """Browse for output folder"""
@@ -450,24 +616,68 @@ class TIFFChannelMerger:
         if folder:
             self.output_location_var.set(folder)
 
-    def start_merge(self):
-        """Start the merge process"""
+    def validate_output(self):
+        """Read and check the output name/folder fields. Returns (name, folder) or None."""
         output_name = self.output_name_var.get().strip()
         output_location = self.output_location_var.get().strip()
 
         if not output_name:
             messagebox.showwarning(self.texts["error"], self.texts["invalidName"])
-            return
+            return None
 
         if not output_location or not os.path.isdir(output_location):
             messagebox.showwarning(self.texts["error"], self.texts["selectOutput"])
-            return
+            return None
 
-        # Show progress
+        return output_name, output_location
+
+    def run_in_background(self, work, on_done):
+        """Run work() in a worker thread so the window stays responsive, then call
+        on_done(result, error) back on the Tk main thread (Tk is not thread-safe)."""
+        result_queue = queue.Queue()
+
+        def worker():
+            try:
+                result_queue.put((work(), None))
+            except Exception as e:  # reported to the user by on_done
+                result_queue.put((None, e))
+
+        def poll():
+            try:
+                result, error = result_queue.get_nowait()
+            except queue.Empty:
+                self.root.after(200, poll)
+                return
+            on_done(result, error)
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(200, poll)
+
+    def start_merge(self):
+        """Start the merge process"""
+        validated = self.validate_output()
+        if not validated:
+            return
+        output_name, output_location = validated
+
+        # Snapshot the job so the worker thread never reads Tk state
+        files = list(self.selected_files)
+        names = list(self.channel_names)
+        pyramid = self.pyramid_var.get()
+
         self.show_progress()
 
-        # Run merge in background
-        self.root.after(100, lambda: self.perform_merge(output_name, output_location))
+        def on_done(final_file, error):
+            if error:
+                self.progress_bar.stop()
+                messagebox.showerror(self.texts["error"], str(error))
+                self.show_file_selection()
+            else:
+                self.show_success(final_file, output_location)
+
+        self.run_in_background(
+            lambda: self.execute_merge(files, names, output_name, output_location, pyramid),
+            on_done)
 
     def show_progress(self):
         """Show merge progress"""
@@ -489,12 +699,28 @@ class TIFFChannelMerger:
         self.progress_bar.pack(pady=30)
         self.progress_bar.start(10)
 
-    def perform_merge(self, output_name, output_location):
-        """Perform the actual merge"""
+    def execute_merge(self, files, channel_names, output_name, output_location, pyramid):
+        """Run one merge job (VIPS + OME-XML/QuPath files + logs).
+
+        Runs in a worker thread: must not touch any Tk widget or variable.
+        Returns the final TIFF path; raises on failure.
+        """
+        if len(files) < 2:
+            raise ValueError(self.texts["minTwoFiles"])
+        for file_path in files:
+            if not os.path.isfile(file_path):
+                raise FileNotFoundError(f"{self.texts['inputNotFound']} {file_path}")
+        if not os.path.isdir(output_location):
+            raise FileNotFoundError(f"{self.texts['outputDirMissing']} {output_location}")
+
+        # Pad names so a job loaded from JSON with fewer names than files still works
+        channel_names = list(channel_names) + [""] * (len(files) - len(channel_names))
+
+        output_path = os.path.join(output_location, output_name)
+        temp_file = output_path + "_temp.tif"
+        final_file = output_path + ".tif"
+
         try:
-            output_path = os.path.join(output_location, output_name)
-            temp_file = output_path + "_temp.tif"
-            final_file = output_path + ".tif"
 
             # Set environment variables for large image processing
             env = os.environ.copy()
@@ -511,7 +737,7 @@ class TIFFChannelMerger:
             all_logs = []
 
             # Build file list for VIPS
-            file_list = " ".join([f'"{f}"' for f in self.selected_files])
+            file_list = " ".join([f'"{f}"' for f in files])
 
             # Step 1: Merge channels directly with bandjoin
             merge_cmd = f'{self.vips_path} bandjoin "{file_list}" "{temp_file}"'
@@ -522,7 +748,7 @@ class TIFFChannelMerger:
                 raise Exception(f"Merge failed: {merge_result.stderr}")
 
             # Step 3: Create final file with disk-based processing
-            if self.pyramid_var.get():
+            if pyramid:
                 save_cmd = f'{self.vips_path} tiffsave "{temp_file}" "{final_file}" --compression=lzw --tile --tile-width=256 --tile-height=256 --pyramid --bigtiff --vips-disc-threshold=0'
             else:
                 save_cmd = f'{self.vips_path} tiffsave "{temp_file}" "{final_file}" --compression=lzw --bigtiff --vips-disc-threshold=0'
@@ -534,26 +760,21 @@ class TIFFChannelMerger:
                 raise Exception(f"Save failed: {save_result.stderr}")
 
             # Create OME-XML if channel names are provided
-            has_channel_names = any(name.strip() for name in self.channel_names)
+            has_channel_names = any(name.strip() for name in channel_names)
             if has_channel_names:
-                self.create_ome_xml(final_file, output_path)
+                self.create_ome_xml(final_file, output_path, files, channel_names)
 
             # Copy VIPS logs to output directory for troubleshooting
-            self.copy_logs_to_output(output_location, all_logs)
+            self.copy_logs_to_output(output_location, all_logs, files, channel_names)
 
-            # Clean up
+            return final_file
+
+        finally:
+            # Clean up the intermediate file, on success and on failure
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
-            # Show success
-            self.show_success(final_file, output_location)
-
-        except Exception as e:
-            self.progress_bar.stop()
-            messagebox.showerror(self.texts["error"], str(e))
-            self.show_file_selection()
-
-    def copy_logs_to_output(self, output_location, all_logs):
+    def copy_logs_to_output(self, output_location, all_logs, files, channel_names):
         """Copy VIPS logs to output directory for troubleshooting"""
         try:
             # Aggregate all stdout and stderr
@@ -586,8 +807,8 @@ class TIFFChannelMerger:
                 f.write(f"VIPS Path: {self.vips_path}\n")
                 f.write(f"Output Location: {output_location}\n\n")
                 f.write("Selected Files:\n")
-                for i, file_path in enumerate(self.selected_files):
-                    channel_name = self.channel_names[i] if i < len(self.channel_names) and self.channel_names[i] else f"Channel_{i+1}"
+                for i, file_path in enumerate(files):
+                    channel_name = channel_names[i] if i < len(channel_names) and channel_names[i] else f"Channel_{i+1}"
                     f.write(f"  {i+1}. {channel_name}: {file_path}\n")
                 f.write("\n")
                 f.write("Processing Steps:\n")
@@ -606,13 +827,13 @@ class TIFFChannelMerger:
         except Exception as e:
             print(f"  ⚠ Could not save logs: {e}")
 
-    def create_ome_xml(self, tiff_file, output_base):
+    def create_ome_xml(self, tiff_file, output_base, files, channel_names):
         """Create OME-XML sidecar file and QuPath import files"""
-        channel_count = len(self.selected_files)
+        channel_count = len(files)
 
         # Prepare channel names list
         channel_names_list = []
-        for i, name in enumerate(self.channel_names):
+        for i, name in enumerate(channel_names[:channel_count]):
             channel_name = name.strip() if name.strip() else f"Channel_{i+1}"
             channel_names_list.append(channel_name)
 
@@ -660,7 +881,7 @@ class TIFFChannelMerger:
         channels_txt_basename = os.path.basename(channels_txt_file)
 
         # Determine language for comments
-        is_french = self.language.get() == "Français"
+        is_french = self.lang_name == "Français"
 
         if is_french:
             comment_header = "// Script QuPath - Importation automatique des noms de canaux"
@@ -780,6 +1001,306 @@ println("{msg_verify}")
                   command=lambda: subprocess.run(["open", output_location])).pack(side=tk.LEFT, padx=10)
         ttk.Button(btn_frame, text=self.texts["finish"], width=15,
                   command=self.root.quit).pack(side=tk.LEFT, padx=10)
+
+    # ------------------------------------------------------------------
+    # Batch mode
+    # ------------------------------------------------------------------
+
+    def build_batch_tree(self, parent, height):
+        """Create the job table (name / channels / output / status) used by the
+        job manager and the batch processing screens"""
+        tree_frame = ttk.Frame(parent)
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        columns = ("name", "channels", "output", "status")
+        self.batch_tree = ttk.Treeview(tree_frame, columns=columns, show="headings",
+                                       height=height, selectmode="browse")
+        headings = {"name": "colJobName", "channels": "colChannels",
+                    "output": "colOutput", "status": "colStatus"}
+        widths = {"name": 170, "channels": 70, "output": 380, "status": 100}
+        for col in columns:
+            self.batch_tree.heading(col, text=self.texts[headings[col]])
+            anchor = tk.CENTER if col in ("channels", "status") else tk.W
+            self.batch_tree.column(col, width=widths[col], anchor=anchor,
+                                   stretch=(col == "output"))
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.batch_tree.yview)
+        self.batch_tree.configure(yscrollcommand=scrollbar.set)
+        self.batch_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.refresh_batch_tree()
+
+    def refresh_batch_tree(self):
+        """Redraw the job table from self.batch_jobs (row iid = job index)"""
+        status_keys = {"Pending": "statusPending", "Running": "statusRunning",
+                       "Completed": "statusCompleted", "Error": "statusError"}
+        selection = self.batch_tree.selection()
+        self.batch_tree.delete(*self.batch_tree.get_children())
+        for i, job in enumerate(self.batch_jobs):
+            output = os.path.join(job.output_path, f"{job.output_name}.tif")
+            status = self.texts[status_keys.get(job.status, "statusPending")]
+            self.batch_tree.insert("", tk.END, iid=str(i),
+                                   values=(job.job_name, len(job.selected_files), output, status))
+        for iid in selection:
+            if self.batch_tree.exists(iid):
+                self.batch_tree.selection_set(iid)
+
+    def selected_batch_index(self):
+        """Index of the job selected in the table, or None (with a warning)"""
+        selection = self.batch_tree.selection()
+        if not selection:
+            messagebox.showwarning(self.texts["error"], self.texts["noJobSelected"])
+            return None
+        return int(selection[0])
+
+    def show_batch_job_manager(self):
+        """Batch job manager: build, edit, save/load and run a list of merges"""
+        self.mode = "batch"
+        self.batch_edit_index = None
+
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self.root, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text=self.texts["batchJobManager"],
+                  font=("Helvetica", 16, "bold")).pack(pady=10)
+        ttk.Label(main_frame, text=self.texts["batchJobManagerDesc"],
+                  font=("Helvetica", 11), justify=tk.CENTER).pack(pady=5)
+
+        self.build_batch_tree(main_frame, height=12)
+        self.batch_tree.bind("<Double-1>", lambda e: self.edit_batch_job())
+
+        job_btns = ttk.Frame(main_frame)
+        job_btns.pack(pady=5)
+        ttk.Button(job_btns, text=self.texts["addJob"], width=15,
+                   command=self.add_batch_job).pack(side=tk.LEFT, padx=5)
+        ttk.Button(job_btns, text=self.texts["editJob"], width=15,
+                   command=self.edit_batch_job).pack(side=tk.LEFT, padx=5)
+        ttk.Button(job_btns, text=self.texts["removeJob"], width=15,
+                   command=self.remove_batch_job).pack(side=tk.LEFT, padx=5)
+
+        file_btns = ttk.Frame(main_frame)
+        file_btns.pack(pady=5)
+        ttk.Button(file_btns, text=self.texts["saveBatchList"], width=22,
+                   command=self.save_batch_list).pack(side=tk.LEFT, padx=5)
+        ttk.Button(file_btns, text=self.texts["loadBatchList"], width=22,
+                   command=self.load_batch_list).pack(side=tk.LEFT, padx=5)
+
+        nav_btns = ttk.Frame(main_frame)
+        nav_btns.pack(pady=15)
+        ttk.Button(nav_btns, text=self.texts["runBatch"], width=18,
+                   command=self.run_batch).pack(side=tk.LEFT, padx=10)
+        ttk.Button(nav_btns, text=self.texts["backToWelcome"], width=18,
+                   command=self.back_to_welcome).pack(side=tk.LEFT, padx=10)
+
+    def back_to_welcome(self):
+        """Leave the batch manager (the job list is kept in memory)"""
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        self.show_welcome()
+
+    def add_batch_job(self):
+        """Reuse the file selection / output screens to build a new job"""
+        self.mode = "batch_add"
+        self.batch_edit_index = None
+        self.reset_current_job()
+        # Convenience: new jobs default to the previous job's output folder
+        if self.batch_jobs:
+            self._edit_output_dir = self.batch_jobs[-1].output_path
+        self.show_file_selection()
+
+    def edit_batch_job(self):
+        """Load the selected job into the file selection / output screens"""
+        index = self.selected_batch_index()
+        if index is None:
+            return
+        job = self.batch_jobs[index]
+
+        self.mode = "batch_edit"
+        self.batch_edit_index = index
+        self.selected_files = list(job.selected_files)
+        names = list(job.channel_names)
+        self.channel_names = (names + [""] * len(self.selected_files))[:len(self.selected_files)]
+        self._edit_output_name = job.output_name
+        self._edit_output_dir = job.output_path
+        self._edit_pyramid = job.pyramid
+        self.show_file_selection()
+
+    def remove_batch_job(self):
+        index = self.selected_batch_index()
+        if index is None:
+            return
+        if messagebox.askyesno(self.texts["removeJob"], self.texts["confirmRemoveJob"]):
+            del self.batch_jobs[index]
+            self.batch_tree.selection_remove(*self.batch_tree.selection())
+            self.refresh_batch_tree()
+
+    def save_batch_job(self):
+        """'Add to Batch' / 'Update Job' button of the output configuration screen"""
+        validated = self.validate_output()
+        if not validated:
+            return
+        output_name, output_location = validated
+
+        # Two jobs writing the same TIFF would silently overwrite each other
+        target = os.path.normpath(os.path.join(output_location, output_name))
+        for i, other in enumerate(self.batch_jobs):
+            if i == self.batch_edit_index:
+                continue
+            if os.path.normpath(os.path.join(other.output_path, other.output_name)) == target:
+                messagebox.showwarning(self.texts["error"],
+                                       self.texts["duplicateOutput"].format(path=target + ".tif"))
+                return
+
+        job = core.BatchJob(
+            job_name=output_name,
+            selected_files=list(self.selected_files),
+            channel_names=list(self.channel_names),
+            output_name=output_name,
+            output_path=output_location,
+            pyramid=self.pyramid_var.get(),
+        )
+
+        if self.mode == "batch_edit" and self.batch_edit_index is not None:
+            self.batch_jobs[self.batch_edit_index] = job
+        else:
+            self.batch_jobs.append(job)
+
+        self.show_batch_job_manager()
+
+    def save_batch_list(self):
+        """Save the job list as JSON (same schema as the Windows GUI and the CLI)"""
+        if not self.batch_jobs:
+            messagebox.showwarning(self.texts["error"], self.texts["noJobsToRun"])
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json", initialfile="batch_jobs.json",
+            filetypes=[("JSON", "*.json"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            core.save_batch_config(path, self.batch_jobs)
+        except OSError as e:
+            messagebox.showerror(self.texts["error"], f"{self.texts['saveFailed']}\n{e}")
+
+    def load_batch_list(self):
+        """Load a batch_jobs.json (from this GUI, the CLI or the Windows version).
+        Replaces the current list."""
+        path = filedialog.askopenfilename(
+            filetypes=[("JSON", "*.json"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            jobs = core.load_batch_config(path)
+        except (OSError, ValueError, AttributeError, TypeError) as e:
+            messagebox.showerror(self.texts["error"], f"{self.texts['loadFailed']}\n{e}")
+            return
+        self.batch_jobs = jobs
+        self.refresh_batch_tree()
+
+    def run_batch(self):
+        """Run every job in the list, one after the other"""
+        if not self.batch_jobs:
+            messagebox.showwarning(self.texts["error"], self.texts["noJobsToRun"])
+            return
+
+        for job in self.batch_jobs:
+            job.status = "Pending"
+            job.error_message = ""
+            job.start_time = None
+            job.end_time = None
+
+        self.batch_start_time = datetime.now()
+        self.show_batch_processing()
+        self.run_next_batch_job(0)
+
+    def show_batch_processing(self):
+        """Progress screen: overall progress bar + live job table"""
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self.root, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.batch_title = ttk.Label(main_frame, text=self.texts["batchProcessing"],
+                                     font=("Helvetica", 16, "bold"))
+        self.batch_title.pack(pady=10)
+
+        self.batch_job_label = ttk.Label(main_frame, text="", font=("Helvetica", 12),
+                                         justify=tk.CENTER)
+        self.batch_job_label.pack(pady=5)
+
+        self.batch_progress = ttk.Progressbar(main_frame, mode="determinate", length=500,
+                                              maximum=len(self.batch_jobs))
+        self.batch_progress.pack(pady=10)
+
+        self.build_batch_tree(main_frame, height=10)
+
+        # Filled in by finish_batch()
+        self.batch_btn_frame = ttk.Frame(main_frame)
+        self.batch_btn_frame.pack(pady=15)
+
+    def run_next_batch_job(self, index):
+        if index >= len(self.batch_jobs):
+            self.finish_batch()
+            return
+
+        job = self.batch_jobs[index]
+        job.status = "Running"
+        job.start_time = datetime.now()
+        self.batch_job_label.config(
+            text=f"{self.texts['batchProcessingJob']} {index + 1}/{len(self.batch_jobs)} : {job.job_name}")
+        self.refresh_batch_tree()
+
+        def on_done(_final_file, error):
+            job.end_time = datetime.now()
+            if error:
+                job.status = "Error"
+                job.error_message = str(error).strip()
+            else:
+                job.status = "Completed"
+            self.batch_progress["value"] = index + 1
+            self.refresh_batch_tree()
+            self.run_next_batch_job(index + 1)
+
+        self.run_in_background(
+            lambda: self.execute_merge(job.selected_files, job.channel_names,
+                                       job.output_name, job.output_path, job.pyramid),
+            on_done)
+
+    def finish_batch(self):
+        """Write batch_report.txt (in the first job's folder, like Windows) and show a summary"""
+        completed = [j for j in self.batch_jobs if j.status == "Completed"]
+        errors = [j for j in self.batch_jobs if j.status == "Error"]
+
+        summary = self.texts["batchSummary"].format(
+            completed=len(completed), total=len(self.batch_jobs), errors=len(errors))
+
+        report_dir = self.batch_jobs[0].output_path
+        try:
+            core.generate_batch_report(self.batch_jobs, report_dir, self.batch_start_time)
+            summary += f"\n{self.texts['batchReportSaved']} {os.path.join(report_dir, 'batch_report.txt')}"
+        except OSError as e:
+            summary += f"\n{self.texts['batchReportFailed']} {e}"
+
+        for job in errors:
+            first_line = job.error_message.splitlines()[0] if job.error_message else ""
+            summary += f"\n• {job.job_name}: {first_line[:150]}"
+
+        self.batch_title.config(text=self.texts["batchComplete"],
+                                foreground="green" if not errors else "orange")
+        self.batch_job_label.config(text=summary)
+
+        last_folder = self.batch_jobs[-1].output_path
+        ttk.Button(self.batch_btn_frame, text=self.texts["openLastFolder"], width=22,
+                   command=lambda: subprocess.run(["open", last_folder])).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.batch_btn_frame, text=self.texts["backToJobList"], width=18,
+                   command=self.show_batch_job_manager).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.batch_btn_frame, text=self.texts["finish"], width=15,
+                   command=self.root.quit).pack(side=tk.LEFT, padx=5)
 
 
 def main():
